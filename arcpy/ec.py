@@ -2,14 +2,49 @@ import arcpy
 import textwrap
 import os
 import csv
-from itertools import izip, islice, tee
-from datetime import timedelta
+from itertools import izip, islice, tee, groupby
+from datetime import timedelta, datetime
 
+class MinMax(object):
+    def __init__(self, min, max):
+        self.min = min
+        self.max = max
 
-class TrackMatchingResult:
-    def __init__(self, track, matches, num_consecutive_results):
+    def __str__(self):
+        return '[{},{}]'.format(str(self.min), str(self.max))
+
+    def __repr__(self):
+        return str(self)
+
+def min_max(iterable, key=None, min_key=None, max_key=None):
+    if key is None: key = lambda x: x
+    if min_key is None: min_key = key
+    if max_key is None: max_key = key
+    min_value, max_value = (None, None)
+    for value in iterable:
+        if min_value is None or min_key(value) < min_key(min_value): min_value = value
+        if max_value is None or max_key(value) > max_key(max_value): max_value = value
+    return MinMax(min_value, max_value)
+
+class TrackMatchingResult(object):
+    MAX_TIME_SPAN = timedelta(seconds=10)
+
+    def __init__(self, track, matches, node_count, num_consecutive_results):
         self.track = track
-        self.matches = [x for x in self._filter_matches(matches) if len(x) > num_consecutive_results]
+        self.axis_node_count = node_count
+        self.num_consecutive_results = num_consecutive_results
+
+        matches = self.create_node_matches(matches)
+        matches = self.filter_matches(matches)
+        matches = self.check_match_length(matches)
+        matches = self.remove_edge_matches(matches)
+        matches = self.print_matches(matches)
+
+        self.matches = list(matches)
+
+    @property
+    def axis_segment_count(self):
+        return self.axis_node_count - 1
 
     def __str__(self):
         return '<track: {}, matches: {}>'.format(self.track, [str(match) for match in self.matches])
@@ -17,30 +52,62 @@ class TrackMatchingResult:
     def __len__(self):
         return len(self.matches)
 
-    def _filter_matches(self, matches):
-        matches = sorted(matches, key=lambda x: x.time)
+    def print_matches(self, matches):
+        for match in matches:
+            print str(match)
+            yield match
 
+    def check_match_length(self, matches):
+        """
+        Returns only those matches that have a length greater or equal to the
+        minumum required length.
+        """
+        for match in matches:
+            if len(match) >= self.num_consecutive_results:
+                yield match
+
+
+    def remove_edge_matches(self, matches):
+        """
+        Removes the first and/or last node match if these nodes are not the
+        first and last nodes of the axis.
+        """
+        for match in matches:
+            if match.min_idx > 0:
+                match.delete_min_idx()
+            if match.max_idx < self.axis_node_count:
+                match.delete_max_idx()
+            yield match
+
+    def create_node_matches(self, matches):
+        """Creates NodeMatchingResult objects for the supplied tuples."""
+        for match in matches:
+            idx, min_time, max_time = match
+            yield NodeMatchingResult(min_time, max_time, idx)
+
+    def filter_matches(self, matches):
+        """
+        Removes matches that are going in the wrong direction and merges matches
+        that are consecutive into single objects.
+        """
+        matches = sorted(matches, key=lambda x: x.time)
         current = None
-        max_time_span = timedelta(seconds=20)
 
         for a, b in nwise(matches, 2):
+            # non consecutive nodes
+            non_consecutive = not (b.min_idx <= a.max_idx + 1 <= b.max_idx)
 
-            if a.max_idx > b.min_idx or (a.idx == b.idx and (a.max_time - b.min_time) < max_time_span):
+            # same node, but a too big time difference
+            too_big_time_difference = (a.idx == b.idx and (a.max_time - b.min_time) < TrackMatchingResult.MAX_TIME_SPAN)
+
+            if non_consecutive or too_big_time_difference:
                 if current is not None:
                     yield current
                     current = None
-                continue
-
-            # if both are crossed:
-            if a is not None and b is not None:
-                if a.max_time <= b.min_time or a.time == b.time:
-                    if current is None:
-                        current = a.merge(b)
-                    else:
-                        current = current.merge(b)
-            elif current is not None:
-                yield current
-                current = None
+            elif current is None:
+                current = a.merge(b)
+            else:
+                current = current.merge(b)
 
         if current is not None:
             yield current
@@ -50,25 +117,63 @@ class TrackMatchingResult:
         return SQL.and_((SQL.eq_('track', self.track), SQL.or_(x.as_sql_clause() for x in self.matches)))
 
 class NodeMatchingResult(object):
-    def __init__(self, min_time, max_time, min_idx, max_idx = None):
+    def __init__(self, min_time, max_time, min_idx, max_idx=None, details=None):
         if max_idx is None:
             max_idx = min_idx
+
         if min_idx > max_idx:
             raise ValueError('min_idx (%s) > max_idx (%s)' % (min_idx, max_idx))
+
         if min_time > max_time:
             raise ValueError('min_time (%s) > max_time (%s' % (min_time, max_time))
 
         self.idx = (min_idx, max_idx)
         self.time = (min_time, max_time)
 
+        if details is None:
+            if min_idx != max_idx:
+                raise Exception('details is missing')
+            self.details = {min_idx: self.time}
+        else:
+
+            for idx in xrange(min_idx, max_idx + 1):
+                if idx not in details:
+                    raise Exception('no source for node {}; range: {}-{}'.format(idx, min_idx, max_idx))
+
+            self.details = details
+
     def __len__(self):
         return self.idx[1] - self.idx[0] + 1
 
     def __str__(self):
         if self.min_idx == self.max_idx:
-            return '<Node: {0}, {1}--{2}>'.format(self.min_idx, str(self.min_time), str(self.max_time))
+            return '<Node: {}, {}--{}>'.format(
+                self.min_idx,
+                str(self.min_time),
+                str(self.max_time))
         else:
-            return '<Node: {0}--{1}, {2}--{3}>'.format(self.min_idx, self.max_idx, str(self.min_time), str(self.max_time))
+            return '<Node: {}--{}, {}--{}>'.format(
+                self.min_idx,
+                self.max_idx,
+                str(self.min_time),
+                str(self.max_time))
+
+    def delete_min_idx(self):
+        if self.min_idx == self.max_idx:
+            raise Exception('can not shrink single index result')
+        del self.details[self.min_idx]
+        self.idx = (self.min_idx + 1, self.max_idx)
+        self.time = (self.details[self.min_idx][0], self.time[1])
+
+    def delete_max_idx(self):
+        if self.min_idx == self.max_idx:
+            raise Exception('can not shrink single index result')
+        del self.details[self.max_idx]
+        self.idx = (self.min_idx, self.max_idx - 1)
+        try:
+            self.time = (self.time[0], self.details[self.max_idx][1])
+        except:
+            print 'Details:\n {}'.format(str(self.details))
 
     def as_sql_clause(self):
         """
@@ -97,33 +202,29 @@ class NodeMatchingResult(object):
         """The maximum time this result represents."""
         return self.time[1]
 
+    def _merge_details(self, a, b):
+        def merge(a, b): return (min(a[0], b[0]), max(a[1], b[1]))
+        z = a.copy()
+        for k, v in b.items():
+            z[k] = v if k not in z else merge(z[k], v)
+        return z
+
     def merge(self, other):
         """Merges this result with another result."""
         return NodeMatchingResult(
-            self.time[0], other.time[1],
-            self.idx[0], other.idx[1])
+            min_time=min(self.min_time, other.min_time),
+            max_time=max(self.max_time, other.max_time),
+            min_idx=min(self.min_idx, other.min_idx),
+            max_idx=max(self.max_idx, other.max_idx),
+            details = self._merge_details(self.details, other.details))
 
-
-def create_axis_subsets(measurements_fc,
-                        trajectories_fc,
-                        tracks_fc,
-                        axis_model,
-                        out_dir = None,
-                        out_name = 'outputs.gdb',
-                        axes = None,
-                        time = None,
-                        node_tolerance = 30):
-
-    matcher = TrackMatcher(
-        measurements_fc=measurements_fc,
-        trajectories_fc=trajectories_fc,
-        tracks_fc=tracks_fc,
-        axes=axes,
-        time=time,
-        out_dir=out_dir,
-        out_name=out_name,
-        node_tolerance=node_tolerance,
-        axis_model=axis_model)
+def create_axis_subsets(measurements_fc, trajectories_fc, tracks_fc, axis_model,
+                        out_dir = None, out_name = 'outputs.gdb', axes = None,
+                        time = None, node_tolerance = 30):
+    matcher = TrackMatcher(measurements_fc=measurements_fc,
+        trajectories_fc=trajectories_fc, tracks_fc=tracks_fc, axes=axes,
+        time=time, out_dir=out_dir, out_name=out_name,
+        node_tolerance=node_tolerance, axis_model=axis_model)
     matcher.analyze()
 
 class AxisModel(object):
@@ -148,8 +249,13 @@ def get_all_axes(axis_model):
             with arcpy.da.SearchCursor(fc, [field], sql_clause=sql_clause) as rows:
                 for row in rows:
                     yield row[0]
-        feature_classes = (axis_model.axis_segment_fc, axis_model.node_start_fc,
-                           axis_model.node_lsa_fc, axis_model.node_influence_fc)
+
+        feature_classes = (
+            axis_model.axis_segment_fc,
+            axis_model.node_start_fc,
+            axis_model.node_lsa_fc,
+            axis_model.node_influence_fc
+        )
         axes = set(axis for feature_class in feature_classes for axis in get_axes(feature_class))
         return sorted(axes)
 
@@ -332,8 +438,6 @@ class TrackMatcher(object):
             arcpy.management.DeleteField(fc, 'NEAR_FID')
             arcpy.management.DeleteField(fc, 'NEAR_DIST')
 
-
-
         finally:
             arcpy.management.Delete(extracted_axis)
 
@@ -386,12 +490,16 @@ class TrackMatcher(object):
 
     def get_track_matches(self, track, axis, num_consecutive_results = 4):
         print 'checking track %s for axis %s' % (track, axis)
-        arcpy.management.SelectLayerByAttribute(self.node_buffer_fl,
-            where_clause = SQL.eq_('AXIS', SQL.quote_(axis)))
-        node_range = xrange(1, count_features(self.node_buffer_fl))
+        node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
-        node_matches = [match for node in node_range for match in get_node_matches(node)]
-        return TrackMatchingResult(track, node_matches, num_consecutive_results)
+        node_matches = [match for node in xrange(0, node_count) for match in get_node_matches(node)]
+        return TrackMatchingResult(track, node_matches, node_count, num_consecutive_results)
+
+    def get_nodes_count(self, axis):
+        fl = self.node_buffer_fl
+        where = SQL.eq_('AXIS', SQL.quote_(axis))
+        arcpy.management.SelectLayerByAttribute(fl, where_clause = where)
+        return count_features(self.node_buffer_fl)
 
     def get_node_matches(self, track, axis, node):
         arcpy.management.SelectLayerByAttribute(self.node_buffer_fl,
@@ -427,11 +535,11 @@ class TrackMatcher(object):
                     elif (min - max_time) < threshold:
                         max_time = max
                     else:
-                        yield NodeMatchingResult(min_time, max_time, node)
+                        yield (node, min_time, max_time)
                         min_time = max_time = None
 
             if min_time is not None:
-                yield NodeMatchingResult(min_time, max_time, node)
+                yield (node, min_time, max_time)
 
 
     def get_track_matches_for_axis(self, axis):
