@@ -1,13 +1,15 @@
-import arcpy
-import os
-import ec
+from arcpy import env
+from os import path
+from ec import AxisModel, find_passages
+from ooarcpy import FileGDB
 
 if __name__ == '__main__':
     basedir = r'C:\tsc'
-    arcpy.env.overwriteOutput = True
-    arcpy.env.workspace = os.path.join(basedir, 'workspace')
-    fgdb = os.path.join(arcpy.env.workspace, 'outputs.gdb')
-    axis_model = ec.AxisModel.for_dir(os.path.join(basedir, 'model'))
-    measurements_fc = os.path.join(fgdb, 'measurements')
+    env.overwriteOutput = True
+    env.workspace = path.join(basedir, 'workspace')
+    fgdb = FileGDB(path.join(env.workspace, 'outputs.gdb'))
+    axis_model = AxisModel.for_dir(path.join(basedir, 'model'))
 
-    ec.find_passages(fgdb, axis_model, measurements_fc)
+    measurements_fc = fgdb.feature_class('measurements')
+
+    find_passages(fgdb, axis_model, measurements_fc)

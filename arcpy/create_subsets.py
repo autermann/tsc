@@ -1,30 +1,32 @@
-import arcpy
-import os
-import ec
+from arcpy import env
+from ec import AxisModel, create_axis_subsets, axis
+from ooarcpy import SDE
+from os import path
 
 if __name__ == '__main__':
     basedir = r'C:\tsc'
-    arcpy.env.workspace = os.path.join(basedir, 'workspace')
-    arcpy.env.overwriteOutput = True
+    modeldir = path.join(basedir, 'model')
 
-    db_params = ec.DatabaseParams(
-        database = 'envirocar',
-        hostname = 'localhost',
-        username = 'postgres',
-        password = 'postgres')
+    workspace = env.workspace = path.join(basedir, 'workspace')
 
-    sde = db_params.create_sde(arcpy.env.workspace, 'envirocar')
+    env.overwriteOutput = True
 
-    ec.create_axis_subsets(
-        measurements_fc = db_params.get_feature_class('measurements'),
-        trajectories_fc = db_params.get_feature_class('trajectories'),
-        tracks_fc = db_params.get_feature_class('tracks'),
-        axes = None,
-        #axes = [axis for axis in ec.axis(xrange(3, 4 + 1))],
+    sde = SDE(database = 'envirocar', hostname = 'localhost',
+              username = 'postgres',  password = 'postgres')
+    sde.create_if_not_exists(path.join(workspace, 'envirocar.sde'))
+
+    axis_model = AxisModel.for_dir(modeldir)
+
+    create_axis_subsets(
+        measurements_fc = sde.feature_class('measurements'),
+        trajectories_fc = sde.feature_class('trajectories'),
+        tracks_fc = sde.feature_class('tracks'),
+        #axes = None,
+        #axes = [axis for axis in axis(xrange(3, 4 + 1))],
         #axes = ['4_2'],
-        #axes = ['3_1'],
+        axes = ['1_1','1_2'],
         time = None,
-        out_dir = arcpy.env.workspace,
+        out_dir = workspace,
         out_name = 'outputs.gdb',
         node_tolerance = 20,
-        axis_model = ec.AxisModel.for_dir(os.path.join(basedir, 'model')))
+        axis_model = axis_model)
