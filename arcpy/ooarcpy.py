@@ -2,18 +2,10 @@ import arcpy
 import os
 from abc import ABCMeta, abstractmethod, abstractproperty
 
-class FileGDB(object):
-
-    def __init__(self, path):
-        self.id = path
-
-    @property
-    def path(self):
-        return self.id
-
-    def create(self):
-        path, name = os.path.split(self.path)
-        arcpy.management.CreateFileGDB(path, name)
+class ArcpyDatabase(object):
+    __metaclass__ = ABCMeta
+    @abstractproperty
+    def id(self): pass
 
     def delete_if_exists(self):
         if self.exists():
@@ -24,16 +16,19 @@ class FileGDB(object):
             self.create()
 
     def exists(self):
-        return arcpy.Exists(self.path)
+        return arcpy.Exists(self.id)
 
-    def feature_class(self, name):
-        return FeatureClass(os.path.join(self.path, name))
+    def delete(self):
+        arcpy.management.Delete(self.id)
 
-    def table(self, name):
-        return Table(os.path.join(self.path, name))
+    @abstractmethod
+    def feature_class(self, name): pass
 
-class SDE(object):
-    def __init__(self,
+    @abstractmethod
+    def table(self, name): pass
+
+class SDE(ArcpyDatabase):
+    def __init__(self, path,
             database = 'envirocar',
             schema = 'public',
             username = 'postgres',
@@ -44,14 +39,17 @@ class SDE(object):
         self.username = username
         self.password = password
         self.hostname = hostname
-        self.path = None
+        self.path = path
 
-    def create_if_not_exists(self, path):
-        directory, name = os.path.split(path)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+    @property
+    def id(self):
+        return self.path
+
+    def create(self):
+        path, name = os.path.split(self.path)
+
         arcpy.management.CreateDatabaseConnection(
-            out_folder_path = directory,
+            out_folder_path = path,
             out_name = name,
             database_platform = 'POSTGRESQL',
             instance = self.hostname,
@@ -62,13 +60,31 @@ class SDE(object):
             database = self.database,
             schema = self.schema)
 
-        #self.path = os.path.join(directory, '%s.sde' % name)
-
-        self.path = path
-
     def feature_class(self, name):
         featureClassName = '.'.join([self.database, self.schema, name])
         return FeatureClass(os.path.join(self.path, featureClassName))
+
+    def table(self, name):
+        tableName = '.'.join([self.database, self.schema, name])
+        return Table(os.path.join(self.path, tableName))
+
+class FileGDB(ArcpyDatabase):
+    def __init__(self, path):
+        self.path = path
+
+    @property
+    def id(self):
+        return self.path
+
+    def create(self):
+        path, name = os.path.split(self.path)
+        arcpy.management.CreateFileGDB(path, name)
+
+    def feature_class(self, name):
+        return FeatureClass(os.path.join(self.path, name))
+
+    def table(self, name):
+        return Table(os.path.join(self.path, name))
 
 class ArcPyEntityBase(object):
     __metaclass__ = ABCMeta

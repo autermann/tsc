@@ -11,9 +11,10 @@ if __name__ == '__main__':
 
     env.overwriteOutput = True
 
-    sde = SDE(database = 'envirocar', hostname = 'localhost',
+    sde = SDE(path = path.join(workspace, 'envirocar.sde'),
+              database = 'envirocar', hostname = 'localhost',
               username = 'postgres',  password = 'postgres')
-    sde.create_if_not_exists(path.join(workspace, 'envirocar.sde'))
+    sde.create_if_not_exists()
 
     axis_model = AxisModel.for_dir(modeldir)
 
