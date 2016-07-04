@@ -103,7 +103,7 @@ WITH
     SELECT track, rank, start_time, end_time,
       (CASE
         WHEN ST_NumPoints(geom) = 2
-          AND ST_Equals(ST_StartPoint(geom), ST_Endpoint(geom))
+          AND ST_StartPoint(geom) = ST_Endpoint(geom)
         THEN ST_StartPoint(geom)
         ELSE geom
       END) AS geom
@@ -173,7 +173,4 @@ WITH
     ORDER BY track, rank
   )
 INSERT INTO trajectories (track, start_time, end_time, geom)
-  SELECT track, start_time, end_time, geom FROM (t6) AS foo;
-
-
-
+  SELECT track, start_time, end_time, geom FROM t6;
