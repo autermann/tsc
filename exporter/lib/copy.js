@@ -63,7 +63,7 @@ module.exports = function copy(mongoURL, postgresURL, query, callback) {
             if (m !== null) {
               m = parseMeasurement(m);
               if (m !== null)  {
-                if ((i % 100) === 0) {
+                if ((i % 1000) === 0) {
                   console.log('Copying measurement ' + i);
                 }
                 helper.writeToStream(stream, m);
