@@ -1,5 +1,4 @@
 var pg = require('pg');
-var MongoClient = require('mongodb').MongoClient;
 var copyFrom = require('pg-copy-streams').from;
 var iterateEntities = require('./iterateEntities');
 var parseMeasurement = require('./parseMeasurement');
@@ -7,7 +6,7 @@ var PostgresHelper = require('./PostgresHelper');
 var getPhenomenons = require('./getPhenomenons');
 
 module.exports = function copy(mongoURL, postgresURL, query, callback) {
-
+  console.log("Getting phenomenons...");
   getPhenomenons(mongoURL, function(err, result) {
 
     if (err) {
@@ -63,7 +62,7 @@ module.exports = function copy(mongoURL, postgresURL, query, callback) {
             if (m !== null) {
               m = parseMeasurement(m);
               if (m !== null)  {
-                if ((i % 100) === 0) {
+                if ((i % 1000) === 0) {
                   console.log('Copying measurement ' + i);
                 }
                 helper.writeToStream(stream, m);
