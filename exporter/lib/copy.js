@@ -1,5 +1,4 @@
 var pg = require('pg');
-var MongoClient = require('mongodb').MongoClient;
 var copyFrom = require('pg-copy-streams').from;
 var iterateEntities = require('./iterateEntities');
 var parseMeasurement = require('./parseMeasurement');
@@ -7,7 +6,7 @@ var PostgresHelper = require('./PostgresHelper');
 var getPhenomenons = require('./getPhenomenons');
 
 module.exports = function copy(mongoURL, postgresURL, query, callback) {
-
+  console.log("Getting phenomenons...");
   getPhenomenons(mongoURL, function(err, result) {
 
     if (err) {
