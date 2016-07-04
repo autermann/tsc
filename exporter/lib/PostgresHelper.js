@@ -2,7 +2,7 @@
 function createFieldDefinition(field) {
   var sql = field.name + ' ' + field.type;
   if (field.constraints) {
-    field += ' ' + field.constraints;
+    sql += ' ' + field.constraints;
   }
   return sql;
 }
