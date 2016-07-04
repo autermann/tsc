@@ -1,4 +1,20 @@
+
+DROP TABLE IF EXISTS sensors;
+DROP TABLE IF EXISTS tracks;
 DROP TABLE IF EXISTS trajectories;
+
+CREATE TABLE sensors (
+  id SERIAL PRIMARY KEY,
+  objectid CHAR(24) UNIQUE NOT NULL
+);
+
+CREATE TABLE tracks (
+  id SERIAL PRIMARY KEY,
+  objectid CHAR(24) UNIQUE NOT NULL,
+  start_time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  end_time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  geom GEOMETRY(LineString, 4326) NOT NULL
+);
 
 CREATE TABLE trajectories (
   id SERIAL PRIMARY KEY,
@@ -7,6 +23,62 @@ CREATE TABLE trajectories (
   end_time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
   geom GEOMETRY(LineString, 4326) NOT NULL
 );
+
+
+CREATE INDEX ON measurements (track);
+CREATE INDEX ON measurements (sensor);
+CREATE INDEX ON measurements (time);
+CREATE INDEX ON measurements USING GIST(geom) WITH (FILLFACTOR = 100);
+CREATE INDEX ON tracks USING GIST(geom) WITH (FILLFACTOR = 100);
+CREATE INDEX ON tracks (start_time);
+CREATE INDEX ON tracks (end_time);
+CREATE INDEX ON trajectories (track);
+CREATE INDEX ON trajectories USING GIST (geom) WITH (FILLFACTOR = 100);
+CREATE INDEX ON trajectories (start_time);
+CREATE INDEX ON trajectories (end_time);
+
+
+-- fill the sensors table
+INSERT INTO sensors (objectid)
+  SELECT DISTINCT sensor FROM measurements ORDER BY sensor;
+
+-- replace the sensor id with an reference
+ALTER TABLE measurements ADD COLUMN sensor_id INTEGER;
+UPDATE measurements AS m SET sensor_id = (SELECT s.id FROM sensors AS s WHERE s.objectid = m.sensor);
+ALTER TABLE measurements DROP COLUMN sensor;
+ALTER TABLE measurements RENAME COLUMN sensor_id TO sensor;
+ALTER TABLE measurements ADD FOREIGN KEY (sensor) REFERENCES sensors (id) ON DELETE CASCADE;
+ALTER TABLE measurements ALTER COLUMN sensor SET NOT NULL;
+
+-- recreate the index
+CREATE INDEX ON measurements (sensor);
+
+-- fill the tracks table
+INSERT INTO tracks(objectid, start_time, end_time, geom)
+  SELECT
+    m.track AS objectid,
+    MIN(m.time) AS start_time,
+    MAX(m.time) AS end_time,
+    ST_RemoveRepeatedPoints(
+      ST_SetSRID(ST_MakeLine(m.geom ORDER BY time), 4326)
+    ) AS geom
+  FROM measurements AS m
+  GROUP BY m.track
+  ORDER BY m.track;
+
+-- replace the track id with an reference
+ALTER TABLE measurements ADD COLUMN track_id INTEGER;
+UPDATE measurements AS m SET track_id = (SELECT t.id FROM tracks AS t WHERE t.objectid = m.track);
+ALTER TABLE measurements DROP COLUMN track;
+ALTER TABLE measurements RENAME COLUMN track_id TO track;
+ALTER TABLE measurements ADD FOREIGN KEY (track) REFERENCES tracks (id) ON DELETE CASCADE;
+ALTER TABLE measurements ALTER COLUMN track SET NOT NULL;
+
+-- recreate the index
+CREATE INDEX ON measurements (track);
+
+-- remove tracks with less than 2 measurements
+DELETE FROM tracks WHERE NOT ST_IsValid(geom);
 
 WITH
   t1 AS (
@@ -18,7 +90,10 @@ WITH
       time AS end_time,
       ST_SetSRID(ST_MakeLine(LAG(geom) OVER w, geom), 4326) AS geom
     FROM measurements
-    WINDOW w AS (PARTITION BY track ORDER BY time)
+    WINDOW w AS (
+      PARTITION BY track
+      ORDER BY time
+    )
     ORDER BY track, time
     OFFSET 1
   ),
@@ -83,7 +158,11 @@ WITH
       ) AS end_time,
       geom
     FROM t4 AS foo
-    WINDOW w AS (PARTITION BY track ORDER BY rank ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    WINDOW w AS (
+      PARTITION BY track
+      ORDER BY rank
+      ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
+    )
     ORDER BY track, rank
   ),
   t6 AS (
@@ -94,15 +173,7 @@ WITH
     ORDER BY track, rank
   )
 INSERT INTO trajectories (track, start_time, end_time, geom)
-  SELECT track, start_time, end_time, geom FROM t6;
+  SELECT track, start_time, end_time, geom FROM (t6) AS foo;
 
 
-
-
-
-
-CREATE INDEX ON trajectories (track);
-CREATE INDEX ON trajectories USING GIST (geom) WITH (FILLFACTOR = 100);
-CREATE INDEX ON trajectories (start_time);
-CREATE INDEX ON trajectories (end_time);
 
