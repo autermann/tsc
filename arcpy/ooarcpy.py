@@ -7,7 +7,8 @@ import logging
 log = logging.getLogger(__name__)
 
 def debug(command, param):
-    log.debug('%s%s', command, str(param))
+    pass
+    #log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta
@@ -295,9 +296,9 @@ class ArcPyEntityView(ArcPyEntityBase):
     def _select_by_attribute(self, selection_type='NEW_SELECTION', where_clause=None):
         #invert_where_clause = 'INVERT' if invert_where_clause else 'NON_INVERT'
         debug('arcpy.management.SelectLayerByAttribute', (self.id, selection_type, where_clause))
-        log.debug('%d features are selected in layer %s', self.count(), self.id)
+        #log.debug('%d features are selected in layer %s', self.count(), self.id)
         arcpy.management.SelectLayerByAttribute(self.id, selection_type, where_clause)
-        log.debug('Selected %d features in layer %s', self.count(), self.id)
+        #log.debug('Selected %d features in layer %s', self.count(), self.id)
 
     def new_selection(self, where_clause, invert_where_clause=False):
         self._select_by_attribute('NEW_SELECTION', where_clause)
@@ -369,23 +370,21 @@ class FeatureLayer(ArcPyEntityView, SpatialArcPyEntityBase):
         debug('arcpy.management.MakeFeatureLayer', (source.id, name))
         arcpy.management.MakeFeatureLayer(source.id, name)
 
-    def _select_by_location(self, overlap_type='INTERSECT', select_features=None, search_distance=None, selection_type='NEW_SELECTION', invert_spatial_relationship=False):
+    def _select_by_location(self, overlap_type='INTERSECT', select_features=None, search_distance='#', selection_type='NEW_SELECTION', invert_spatial_relationship=False):
         invert_spatial_relationship = 'INVERT' if invert_spatial_relationship else 'NOT_INVERT'
         debug('arcpy.management.SelectLayerByLocation', (self.id, overlap_type, select_features.id, search_distance, selection_type, invert_spatial_relationship))
-        log.debug('%d features are selected in layer %s', self.count(), self.id)
-        arcpy.management.SelectLayerByLocation(self.id, overlap_type, select_features.id, search_distance, selection_type, invert_spatial_relationship)
-        log.debug('Selected %d features in layer %s', self.count(), self.id)
+        arcpy.management.SelectLayerByLocation(in_layer=self.id, overlap_type=overlap_type, select_features=select_features.id, search_distance=search_distance, selection_type=selection_type, invert_spatial_relationship=invert_spatial_relationship)
 
-    def new_selection_by_location(self, features, overlap_type='INTERSECT', search_distance=None, invert_spatial_relationship=False):
+    def new_selection_by_location(self, features, overlap_type='INTERSECT', search_distance='#', invert_spatial_relationship=False):
         self._select_by_location(overlap_type, features, search_distance, 'NEW_SELECTION', invert_spatial_relationship)
 
-    def add_to_selection_by_location(self, features, overlap_type='INTERSECT', search_distance=None, invert_spatial_relationship=False):
+    def add_to_selection_by_location(self, features, overlap_type='INTERSECT', search_distance='#', invert_spatial_relationship=False):
         self._select_by_location(overlap_type, features, search_distance, 'ADD_TO_SELECTION', invert_spatial_relationship)
 
-    def remove_from_selection_by_location(self, features, overlap_type='INTERSECT', search_distance=None, invert_spatial_relationship=False):
+    def remove_from_selection_by_location(self, features, overlap_type='INTERSECT', search_distance='#', invert_spatial_relationship=False):
         self._select_by_location(overlap_type, features, search_distance, 'REMOVE_FROM_SELECTION', invert_spatial_relationship)
 
-    def subset_selection_by_location(self, features, overlap_type='INTERSECT', search_distance=None, invert_spatial_relationship=False):
+    def subset_selection_by_location(self, features, overlap_type='INTERSECT', search_distance='#', invert_spatial_relationship=False):
         self._select_by_location(overlap_type, features, search_distance, 'SUBSET_SELECTION', invert_spatial_relationship)
 
 class TableLikeArcPyEntityBase(ArcPyEntityBase):

@@ -5,7 +5,7 @@ from arcpy import SpatialReference, Array, Point, Polyline, FieldMappings, env
 from ooarcpy import FeatureClass, FileGDB
 from itertools import izip, islice, tee, groupby
 from datetime import timedelta, datetime
-from utils import first, nwise, min_max
+from utils import first, nwise, min_max, SQL
 import logging
 
 log = logging.getLogger(__name__)
@@ -283,7 +283,7 @@ class TrackMatcher(object):
         self.fgdb = FileGDB(os.path.join(self.out_dir, self.out_name))
         self.axis_model = axis_model
 
-        self.measurements_fc = measurements_fc
+        self.measurements_fc = FeatureClass(r'C:\Users\Christian Autermann\Documents\ArcGIS\Default.gdb\m')
         self.measurements_fl = None
         self.trajectories_fc = trajectories_fc
         self.trajectories_fl = None
@@ -439,16 +439,16 @@ class TrackMatcher(object):
         # select all measurements instersecting with the MBR
         self.measurements_fl.new_selection_by_location(self.axis_mbr_fl)
         # get the track ids of the intersecting measurements
-        sql_clause = ('DISTINCT', None)
-        result = None
-        with self.measurements_fl.search(['track'], sql_clause = sql_clause) as rows:
-            return set(row[0] for row in rows)
+        with self.measurements_fl.search(['track'], sql_clause = ('DISTINCT', None)) as rows:
+            return sorted(set(row[0] for row in rows))
+
 
     def create_node_feature_class(self):
         # create a the new feature class
 
         fc = self.fgdb.feature_class('nodes')
-        fc.create(geometry_type = 'POINT', spatial_reference = SpatialReference(4326))
+        fc.create(geometry_type = 'POINT',
+                  spatial_reference = SpatialReference(4326))
         # and add the attribute definitions
         fc.add_field('AXIS', 'TEXT')
         fc.add_field('NODE_TYPE', 'SHORT')
@@ -472,7 +472,7 @@ class TrackMatcher(object):
         return fc
 
     def get_track_matches(self, track, axis, num_consecutive_results = 4):
-        log.info('checking track %s for axis %s', track, axis)
+        log.info('checking axis %s for track %s', axis, track)
         node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
         node_matches = [match for node in xrange(0, node_count) for match in get_node_matches(node)]
@@ -646,31 +646,6 @@ def axis(range):
     for axis in range:
         yield '{}_1'.format(axis)
         yield '{}_2'.format(axis)
-
-class SQL(object):
-    @staticmethod
-    def is_between_(name, value):
-        return '(%s BETWEEN \'%s\' AND \'%s\')' % (name, value[0], value[1])
-
-    @staticmethod
-    def is_null_(name):
-        return '%s IS NULL' % name
-
-    @staticmethod
-    def eq_(name, value):
-        return '%s = %s' % (name, str(value))
-
-    @staticmethod
-    def quote_(value):
-        return '\'%s\'' % value
-
-    @staticmethod
-    def and_(iterable):
-        return ' AND '.join('(%s)' % str(x) for x in iterable)
-
-    @staticmethod
-    def or_(iterable):
-        return ' OR '.join('(%s)' % str(x) for x in iterable)
 
 def merge_feature_classes(feature_classes, target, delete=True):
     try:

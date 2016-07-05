@@ -43,9 +43,9 @@ stops = fgdb.table('stops')
 
 
 
-#axes = None
+axes = None
 #axes = [axis for axis in axis(xrange(3, 4 + 1))]
-axes = ['4_2']
+#axes = ['4_2']
 #axes = ['1_1','1_2']
 
 

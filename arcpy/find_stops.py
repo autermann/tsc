@@ -1,8 +1,4 @@
-from arcpy import env
-from os import path
 from ec import create_stop_table
-from ooarcpy import FileGDB
-
 from config import fgdb, setenv
 
 if __name__ == '__main__':
