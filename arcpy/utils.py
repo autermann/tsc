@@ -37,15 +37,15 @@ def min_max(iterable, key=None, min_key=None, max_key=None):
 class SQL(object):
     @staticmethod
     def is_between_(name, value):
-        return '(%s BETWEEN \'%s\' AND \'%s\')' % (name, value[0], value[1])
+        return '("%s" BETWEEN %s AND %s)' % (name, value[0], value[1])
 
     @staticmethod
     def is_null_(name):
-        return '%s IS NULL' % name
+        return '"%s" IS NULL' % name
 
     @staticmethod
     def eq_(name, value):
-        return '%s = %s' % (name, str(value))
+        return '"%s" = %s' % (name, str(value))
 
     @staticmethod
     def quote_(value):

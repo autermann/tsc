@@ -174,7 +174,7 @@ class NodeMatchingResult(object):
         Convert this result to a SQL-WHERE-clause that can be applied to the
         measurements table.
         """
-        return SQL.is_between_('time', self.time)
+        return SQL.is_between_('time', ['date {}'.format(SQL.quote_(time)) for time in self.time])
 
     @property
     def min_idx(self):
@@ -488,7 +488,7 @@ class TrackMatcher(object):
         assert self.trajectories_fl.count() > 0
         self.trajectories_fl.subset_selection_by_location(self.node_buffer_fl)
         count = self.trajectories_fl.count()
-        log.debug('Selected trajectories of track %s that intersect node %s of axis %s: %d', track, node, axis, count)
+        #log.debug('Selected trajectories of track %s that intersect node %s of axis %s: %d', track, node, axis, count)
         if count:
             min_time = None
             max_time = None
