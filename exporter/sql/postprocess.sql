@@ -37,6 +37,10 @@ CREATE INDEX ON trajectories USING GIST (geom) WITH (FILLFACTOR = 100);
 CREATE INDEX ON trajectories (start_time);
 CREATE INDEX ON trajectories (end_time);
 
+-- add an OID to be recognized by ArcGIS
+ALTER TABLE measurements RENAME COLUMN id to objectid;
+ALTER TABLE measurements DROP CONSTRAINT measurements_pkey;
+ALTER TABLE measurements ADD COLUMN id SERIAL PRIMARY KEY;
 
 -- fill the sensors table
 INSERT INTO sensors (objectid)
