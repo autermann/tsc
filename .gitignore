@@ -33,3 +33,9 @@ node_modules
 
 workspace/
 model/
+
+Export_Output.txt.xml
+*.csv
+*.ini
+*.gz
+*.backup
