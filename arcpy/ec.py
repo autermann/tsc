@@ -22,7 +22,6 @@ class TrackMatchingResult(object):
         matches = self.filter_matches(matches)
         matches = self.check_match_length(matches)
         matches = self.remove_edge_matches(matches)
-        matches = self.print_matches(matches)
 
         self.matches = list(matches)
 
@@ -35,11 +34,6 @@ class TrackMatchingResult(object):
 
     def __len__(self):
         return len(self.matches)
-
-    def print_matches(self, matches):
-        for match in matches:
-            print str(match)
-            yield match
 
     def check_match_length(self, matches):
         """
@@ -283,14 +277,15 @@ class TrackMatcher(object):
         self.fgdb = FileGDB(os.path.join(self.out_dir, self.out_name))
         self.axis_model = axis_model
 
-        self.measurements_fc = FeatureClass(r'C:\Users\Christian Autermann\Documents\ArcGIS\Default.gdb\m')
+        self.measurements_fc = measurements_fc
         self.measurements_fl = None
         self.trajectories_fc = trajectories_fc
         self.trajectories_fl = None
         self.tracks_fc = tracks_fc
+        self.tracks_fl = None
         self.axis_segment_fl = None
-        self.axis_mbr_fc = None
-        self.axis_mbr_fl = None
+        #self.axis_mbr_fc = None
+        #self.axis_mbr_fl = None
         self.node_fc = None
         self.node_buffer_fc = None
         self.node_buffer_fl = None
@@ -307,6 +302,7 @@ class TrackMatcher(object):
 
         self.measurements_fl = self.measurements_fc.view()
         self.trajectories_fl = self.trajectories_fc.view()
+        self.tracks_fl = self.tracks_fc.view()
         self.axis_segment_fl = self.axis_model.segments.view()
 
         # join the different node feature classes
@@ -314,10 +310,10 @@ class TrackMatcher(object):
         # create buffers around nodes
         self.node_buffer_fc = self.create_node_buffer_feature_class()
         # create the MBR for all axis
-        self.axis_mbr_fc = self.create_axis_mbr_feature_class()
+        #self.axis_mbr_fc = self.create_axis_mbr_feature_class()
 
         self.node_buffer_fl = self.node_buffer_fc.view()
-        self.axis_mbr_fl = self.axis_mbr_fc.view()
+        #self.axis_mbr_fl = self.axis_mbr_fc.view()
 
         try:
             target = self.fgdb.feature_class('measurements')
@@ -325,11 +321,11 @@ class TrackMatcher(object):
             merge_feature_classes(subsets, target)
         finally:
             self.node_buffer_fl.delete()
-            self.axis_mbr_fl.delete()
+            #self.axis_mbr_fl.delete()
             self.measurements_fl.delete()
             self.trajectories_fl.delete()
             self.axis_segment_fl.delete()
-
+            self.tracks_fl.delete()
             #self.node_buffer_fc.delete_if_exists()
             #self.node_fc.delete_if_exists()
             #self.axis_mbr_fc.delete_if_exists()
@@ -427,19 +423,19 @@ class TrackMatcher(object):
         finally:
             extracted_axis.delete_if_exists()
 
-    def create_axis_mbr_feature_class(self):
-        log.info('Creating MBR for axis')
-        fc = self.fgdb.feature_class('axis_mbr')
-        self.node_fc.minimum_bounding_geometry(fc, group_option = 'LIST', group_field = 'AXIS')
-        return fc
+    #def create_axis_mbr_feature_class(self):
+    #    log.info('Creating MBR for axis')
+    #    fc = self.fgdb.feature_class('axis_mbr')
+    #    self.node_fc.minimum_bounding_geometry(fc, group_option = 'LIST', group_field = 'AXIS')
+    #    return fc
 
-    def get_tracks_for_axis_mbr(self, axis):
-        # select only the MBR of the current axis
-        self.axis_mbr_fl.new_selection(SQL.eq_('AXIS', SQL.quote_(axis)))
-        # select all measurements instersecting with the MBR
-        self.measurements_fl.new_selection_by_location(self.axis_mbr_fl)
+    def get_tracks_for_nodes_buffer(self, axis):
+        # select only the nodes of the current axis
+        self.node_buffer_fl.new_selection(SQL.eq_('AXIS', SQL.quote_(axis)))
+        # select all measurements instersecting with the nodes
+        self.tracks_fl.new_selection_by_location(self.node_buffer_fl)
         # get the track ids of the intersecting measurements
-        with self.measurements_fl.search(['track'], sql_clause = ('DISTINCT', None)) as rows:
+        with self.tracks_fl.search(['track'], sql_clause = ('DISTINCT', None)) as rows:
             return sorted(set(row[0] for row in rows))
 
 
@@ -476,22 +472,23 @@ class TrackMatcher(object):
         node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
         node_matches = [match for node in xrange(0, node_count) for match in get_node_matches(node)]
-        return TrackMatchingResult(track, node_matches, node_count, num_consecutive_results)
+        result = TrackMatchingResult(track, node_matches, node_count, num_consecutive_results)
+        log.info('result for axis %s for track %s: %s', axis, track, result)
+        return result
 
     def get_nodes_count(self, axis):
         self.node_buffer_fl.new_selection(SQL.eq_('AXIS', SQL.quote_(axis)))
         return self.node_buffer_fl.count()
 
     def get_node_matches(self, track, axis, node):
-        self.node_buffer_fl.new_selection(SQL.and_((SQL.eq_('AXIS', SQL.quote_(axis)), SQL.eq_('NODE_RANK', node))))
+        self.node_buffer_fl.new_selection(SQL.and_((SQL.eq_('AXIS', SQL.quote_(axis)),
+                                                    SQL.eq_('NODE_RANK', node))))
         assert self.node_buffer_fl.count() == 1
         self.trajectories_fl.new_selection(SQL.eq_('track', track))
         assert self.trajectories_fl.count() > 0
         self.trajectories_fl.subset_selection_by_location(self.node_buffer_fl)
-
-
         count = self.trajectories_fl.count()
-
+        log.debug('Selected trajectories of track %s that intersect node %s of axis %s: %d', track, node, axis, count)
         if count:
             min_time = None
             max_time = None
@@ -517,8 +514,10 @@ class TrackMatcher(object):
 
 
     def get_track_matches_for_axis(self, axis):
-        tracks = self.get_tracks_for_axis_mbr(axis)
-        log.info('%s tracks found for axis mbr %s: %s', len(tracks), axis, tracks)
+        tracks = self.get_tracks_for_nodes_buffer(axis)
+        log.info('%s tracks found for nodes of axis %s: %s', len(tracks), axis, tracks)
+
+
         return [x for x in [self.get_track_matches(track, axis, 4) for track in tracks] if len(x) > 0]
 
     def create_csv_export_fields(self):
