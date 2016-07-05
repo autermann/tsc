@@ -1,6 +1,13 @@
 import arcpy
 import os
+import textwrap
 from abc import ABCMeta, abstractmethod, abstractproperty
+import logging
+
+log = logging.getLogger(__name__)
+
+def debug(command, param):
+    log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta
@@ -16,9 +23,11 @@ class ArcpyDatabase(object):
             self.create()
 
     def exists(self):
+        debug('arcpy.Exists', (self.id,))
         return arcpy.Exists(self.id)
 
     def delete(self):
+        debug('arcpy.management.Delete', (self.id,))
         arcpy.management.Delete(self.id)
 
     @abstractmethod
@@ -26,6 +35,9 @@ class ArcpyDatabase(object):
 
     @abstractmethod
     def table(self, name): pass
+
+    def __str__(self):
+        return self.id
 
 class SDE(ArcpyDatabase):
     def __init__(self, path,
@@ -48,6 +60,17 @@ class SDE(ArcpyDatabase):
     def create(self):
         path, name = os.path.split(self.path)
 
+        debug('arcpy.management.CreateDatabaseConnection', {
+            'out_folder_path' : path,
+            'out_name' : name,
+            'database_platform' : 'POSTGRESQL',
+            'instance' : self.hostname,
+            'account_authentication' : 'DATABASE_AUTH',
+            'username' : self.username,
+            'password' : self.password,
+            'save_user_pass' : True,
+            'database' : self.database,
+            'schema' : self.schema})
         arcpy.management.CreateDatabaseConnection(
             out_folder_path = path,
             out_name = name,
@@ -78,6 +101,7 @@ class FileGDB(ArcpyDatabase):
 
     def create(self):
         path, name = os.path.split(self.path)
+        debug('arcpy.management.CreateFileGDB', (path, name))
         arcpy.management.CreateFileGDB(path, name)
 
     def feature_class(self, name):
@@ -100,6 +124,7 @@ class ArcPyEntityBase(object):
         return self.describe().OIDFieldName
 
     def describe(self):
+        debug('arcpy.Describe', (self.id,))
         return arcpy.Describe(self.id)
 
     def delete_if_exists(self):
@@ -107,15 +132,25 @@ class ArcPyEntityBase(object):
             self.delete()
 
     def exists(self):
+        debug('arcpy.Exists', (self.id,))
         return arcpy.Exists(self.id)
 
     def add_field(self, name, type):
+        debug('arcpy.management.AddField', (self.id, name, type))
         arcpy.management.AddField(self.id, name, type)
 
     def delete_field(self, name):
+        debug('arcpy.management.DeleteField', (self.id, name))
         arcpy.management.DeleteField(self.id, name)
 
+    def field_exist(self, name):
+        for field in self.list_fields():
+            if field.name == name:
+                return True
+        return False
+
     def calculate_field(self, field, expression, expression_type='PYTHON_9.3', code_block=None):
+        debug('arcpy.management.CalculateField', (self.id, field, expression, expression_type, code_block))
         arcpy.management.CalculateField(self.id, field, expression, expression_type, code_block)
 
     def set_field_if_null(self, field, value):
@@ -136,12 +171,15 @@ class ArcPyEntityBase(object):
         return None
 
     def search(self, field_names='*', where_clause=None, spatial_reference=None, explode_to_points=False, sql_clause=(None, None)):
+        debug('arcpy.da.SearchCursor', (self.id, field_names, where_clause, spatial_reference, explode_to_points, sql_clause))
         return arcpy.da.SearchCursor(self.id, field_names, where_clause, spatial_reference, explode_to_points, sql_clause)
 
     def insert(self, field_names='*'):
+        debug('arcpy.da.InsertCursor', (self.id, field_names))
         return arcpy.da.InsertCursor(self.id, field_names)
 
     def update(self, field_names, where_clause=None, spatial_reference=None, explode_to_points=False, sql_clause=(None,None)):
+        debug('arcpy.da.UpdateCursor', (self.id, field_names, where_clause, spatial_reference, explode_to_points, sql_clause))
         return arcpy.da.UpdateCursor(self.id, field_names, where_clause, spatial_reference, explode_to_points, sql_clause)
 
     def statistics(self, out_table, statistics_fields, case_field=None):
@@ -149,10 +187,12 @@ class ArcPyEntityBase(object):
             out_table = out_table.id
         except AttributeError:
             pass
+        debug('arcpy.analysis.Statistics', (self.id, out_table, statistics_fields, case_field))
         arcpy.analysis.Statistics(self.id, out_table, statistics_fields, case_field)
         return Table(out_table)
 
     def count(self):
+        #debug('arcpy.management.GetCount', (self.id,))
         return int(arcpy.management.GetCount(self.id).getOutput(0))
 
     def __len__(self):
@@ -168,6 +208,22 @@ class ArcPyEntityBase(object):
         with self.search((attribute), sql_clause=('DISTINCT', None)) as rows:
             return sorted(set(row[0] for row in rows))
 
+    def add_id_field(self, field_name='id'):
+        if self.field_exist(field_name):
+            self.delete_field(field_name)
+        self.add_field(field_name, 'LONG')
+        code_block = textwrap.dedent("""\
+        id = 0
+        def autoIncrement():
+            global id
+            id += 1
+            return id
+        """)
+        self.calculate_field(field_name, 'autoIncrement()', code_block=code_block)
+        return self.path
+
+    def __str__(self):
+        return self.id
 
 class ArcPyEntity(ArcPyEntityBase):
     __metaclass__ = ABCMeta
@@ -188,16 +244,16 @@ class ArcPyEntity(ArcPyEntityBase):
             path = path.id
         except AttributeError:
             pass
+        debug('arcpy.management.Rename', (self.id, path))
         arcpy.management.Rename(self.id, path)
         self.id = path
 
-    def copy(self, path):
-        arcpy.management.Copy(self.id, path)
 
     def append_to(self, target):
         target.append(self)
 
     def append(self, source):
+        debug('arcpy.management.Append', (source.id, self.id))
         arcpy.management.Append(source.id, self.id)
 
     def copy(self, target):
@@ -205,18 +261,23 @@ class ArcPyEntity(ArcPyEntityBase):
             target = target.id
         except AttributeError:
             pass
+        debug('arcpy.management.Copy', (self.id, target))
         arcpy.management.Copy(self.id, target)
         return self.__class__(target)
 
 class ArcPyEntityView(ArcPyEntityBase):
     __metaclass__ = ABCMeta
 
-    def __init__(self, name, source=None):
-        super(ArcPyEntityView, self).__init__(name)
+    def __init__(self, name=None, source=None):
+
         self.source = source
 
         if source is not None:
+            if name is None:
+                name = arcpy.Describe(source.id).name
             self.create(source, name)
+
+        super(ArcPyEntityView, self).__init__(name)
 
     @property
     def name(self):
@@ -228,11 +289,15 @@ class ArcPyEntityView(ArcPyEntityBase):
 
     def add_join(self, field, other, other_field, keep_all=True):
         join_type = 'KEEP_ALL' if keep_all else 'KEEP_COMMON'
+        debug('arcpy.management.AddJoin', (self.id, field, other.id, other_field, join_type))
         arcpy.management.AddJoin(self.id, field, other.id, other_field, join_type)
 
     def _select_by_attribute(self, selection_type='NEW_SELECTION', where_clause=None):
         #invert_where_clause = 'INVERT' if invert_where_clause else 'NON_INVERT'
+        debug('arcpy.management.SelectLayerByAttribute', (self.id, selection_type, where_clause))
+        log.debug('%d features are selected in layer %s', self.count(), self.id)
         arcpy.management.SelectLayerByAttribute(self.id, selection_type, where_clause)
+        log.debug('Selected %d features in layer %s', self.count(), self.id)
 
     def new_selection(self, where_clause, invert_where_clause=False):
         self._select_by_attribute('NEW_SELECTION', where_clause)
@@ -260,6 +325,7 @@ class SpatialArcPyEntityBase(ArcPyEntityBase):
         except AttributeError:
             pass
 
+        debug('arcpy.analysis.Buffer', (self.id, out_feature_class, buffer_distance_or_field, line_side, line_end_type, dissolve_option, dissolve_field, method))
         arcpy.analysis.Buffer(self.id, out_feature_class, buffer_distance_or_field, line_side, line_end_type, dissolve_option, dissolve_field, method)
         return FeatureClass(out_feature_class)
 
@@ -269,13 +335,14 @@ class SpatialArcPyEntityBase(ArcPyEntityBase):
             out_feature_class = out_feature_class.id
         except AttributeError:
             pass
+        debug('arcpy.management.CopyFeatures', (self.id, out_feature_class))
         arcpy.management.CopyFeatures(self.id, out_feature_class)
-
         return FeatureClass(out_feature_class)
 
     def near(self, near_features, search_radius=None, location=False, angle=False, method='PLANAR'):
         location = 'LOCATION' if location else 'NO_LOCATION'
         angle = 'ANGLE' if angle else 'NO_ANGLE'
+        debug('arcpy.analysis.Near', (self.id, near_features.id, search_radius, location, angle, method))
         arcpy.analysis.Near(self.id, near_features.id, search_radius, location, angle, method)
 
     def minimum_bounding_geometry(self, out_feature_class, geometry_type='ENVELOPE', group_option='NONE', group_field=None, mbg_fields_option=False):
@@ -284,24 +351,30 @@ class SpatialArcPyEntityBase(ArcPyEntityBase):
             out_feature_class = out_feature_class.id
         except AttributeError:
             pass
+        debug('arcpy.management.MinimumBoundingGeometry', (self.id, out_feature_class, geometry_type, group_option, group_field, mbg_fields_option))
         arcpy.management.MinimumBoundingGeometry(self.id, out_feature_class, geometry_type, group_option, group_field, mbg_fields_option)
         return FeatureClass(out_feature_class)
 
 class FeatureClass(ArcPyEntity, SpatialArcPyEntityBase):
-    def view(self, name):
+    def view(self, name=None):
         return FeatureLayer(source=self, name=name)
 
     def create(self, geometry_type=None, template=None, has_m=None, has_z=None, spatial_reference=None):
         out_path, out_name = os.path.split(self.id)
+        debug('arcpy.management.CreateFeatureclass', (out_path, out_name, geometry_type, template, has_m, has_z, spatial_reference))
         arcpy.management.CreateFeatureclass(out_path, out_name, geometry_type, template, has_m, has_z, spatial_reference)
 
 class FeatureLayer(ArcPyEntityView, SpatialArcPyEntityBase):
     def create(self, source, name):
+        debug('arcpy.management.MakeFeatureLayer', (source.id, name))
         arcpy.management.MakeFeatureLayer(source.id, name)
 
     def _select_by_location(self, overlap_type='INTERSECT', select_features=None, search_distance=None, selection_type='NEW_SELECTION', invert_spatial_relationship=False):
         invert_spatial_relationship = 'INVERT' if invert_spatial_relationship else 'NOT_INVERT'
+        debug('arcpy.management.SelectLayerByLocation', (self.id, overlap_type, select_features.id, search_distance, selection_type, invert_spatial_relationship))
+        log.debug('%d features are selected in layer %s', self.count(), self.id)
         arcpy.management.SelectLayerByLocation(self.id, overlap_type, select_features.id, search_distance, selection_type, invert_spatial_relationship)
+        log.debug('Selected %d features in layer %s', self.count(), self.id)
 
     def new_selection_by_location(self, features, overlap_type='INTERSECT', search_distance=None, invert_spatial_relationship=False):
         self._select_by_location(overlap_type, features, search_distance, 'NEW_SELECTION', invert_spatial_relationship)
@@ -318,24 +391,27 @@ class FeatureLayer(ArcPyEntityView, SpatialArcPyEntityBase):
 class TableLikeArcPyEntityBase(ArcPyEntityBase):
     __metaclass__ = ABCMeta
 
-    def to_table(self, out_table, field_mapping=None):
+    def to_table(self, out_table, where_clause=None, field_mapping=None):
         try:
             out_table = out_table.id
         except AttributeError:
             pass
         out_path, out_name = os.path.split(out_table)
-        arcpy.conversion.TableToTable(self.id, out_path=out_path,  out_name=out_name, field_mapping=field_mapping)
+        debug('arcpy.conversion.TableToTable', (self.id, out_path,  out_name, where_clause, field_mapping))
+        arcpy.conversion.TableToTable(self.id, out_path,  out_name, where_clause, field_mapping)
 
 
 class Table(ArcPyEntity, TableLikeArcPyEntityBase):
-    def view(self, name):
+    def view(self, name=None):
         return TableView(source=self, name=name)
 
     def create(self):
         out_path, out_name = os.path.split(self.id)
+        debug('arcpy.management.CreateTable', (out_path, out_name))
         arcpy.management.CreateTable(out_path, out_name)
 
 class TableView(ArcPyEntityView, TableLikeArcPyEntityBase):
     def create(self, source, name):
+        debug('arcpy.management.MakeTableView', (source.id, name))
         arcpy.management.MakeTableView(source.id, name)
 

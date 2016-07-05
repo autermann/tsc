@@ -1,22 +1,12 @@
-import arcpy
-import ec
 import textwrap
-
-
-def field_exist(fc, name):
-    for field in arcpy.ListFields(fc):
-        if field.name == name:
-            return True
-    return False
-
-def create_field(fc, field_name, field_type):
-    if field_exist(fc, field_name):
-        arcpy.management.DeleteField(fc, field_name)
-    arcpy.management.AddField(fc, field_name, field_type)
+from config import axis_model, setenv
 
 def add_rank_field(model, field_name):
+    if self.field_exist(field_name):
+        self.delete_field(field_name)
+    self.add_field(field_name, 'LONG')
 
-    create_field(model.axis_segment_fc, field_name, 'LONG')
+
 
     code_block = textwrap.dedent("""\
     def calculate_rang(k, n):
@@ -26,37 +16,16 @@ def add_rank_field(model, field_name):
     """)
 
 
-    fl = arcpy.management.MakeFeatureLayer(model.axis_segment_fc, 'axes')
+    fl = model.segments.view('axes')
     try:
-        arcpy.management.AddJoin(fl, 'LSA', model.node_lsa_fc, 'LSA')
-        arcpy.management.AddJoin(fl, 'N_Einfluss', model.node_influence_fc, 'N_Einfluss')
-
-        arcpy.management.CalculateField(in_table=fl, field=field_name,
-            expression='calculate_rang(!K_LSA.K_Rang!, !N_Einflussbereich.N_Rang!)',
-            expression_type='PYTHON_9.3', code_block=code_block)
+        fl.join('LSA', model.lsa_nodes, 'LSA')
+        fl.join('N_Einfluss', model.influence_nodes, 'N_Einfluss')
+        expression = 'calculate_rang(!K_LSA.K_Rang!, !N_Einflussbereich.N_Rang!)'
+        fl.calculate_field(field_name, expression, code_block=code_block)
     finally:
-        arcpy.management.Delete(fl)
-
-
-def add_id_field(model, field_name):
-    create_field(model.axis_segment_fc, field_name, 'LONG')
-
-    code_block = textwrap.dedent("""\
-    id = 0
-    def autoIncrement():
-        global id
-        id += 1
-        return id
-    """)
-
-    arcpy.management.CalculateField(in_table=model.axis_segment_fc,
-        field=field_name, expression='autoIncrement()',
-        expression_type='PYTHON_9.3', code_block=code_block)
+        fl.delete()
 
 if __name__ == '__main__':
-    arcpy.env.overwriteOutput = True
-    arcpy.env.workspace = r'C:\tsc\workspace'
-    model = ec.AxisModel.for_dir(r'C:\tsc\model')
-
-    add_id_field(model, 'segment_id')
-    add_rank_field(model, 'S_Rang')
+    setenv()
+    axis_model.segments.add_id_field('segment_id')
+    add_rank_field(axis_model, 'S_Rang')

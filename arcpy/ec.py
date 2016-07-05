@@ -1,10 +1,14 @@
 import os
 import csv
+import textwrap
 from arcpy import SpatialReference, Array, Point, Polyline, FieldMappings, env
 from ooarcpy import FeatureClass, FileGDB
 from itertools import izip, islice, tee, groupby
 from datetime import timedelta, datetime
 from utils import first, nwise, min_max
+import logging
+
+log = logging.getLogger(__name__)
 
 class TrackMatchingResult(object):
     MAX_TIME_SPAN = timedelta(seconds=10)
@@ -53,9 +57,9 @@ class TrackMatchingResult(object):
         first and last nodes of the axis.
         """
         for match in matches:
-            if match.min_idx > 0:
+            if match.includes_first_node:
                 match.delete_min_idx()
-            if match.max_idx < self.axis_node_count:
+            if match.includes_last_node:
                 match.delete_max_idx()
             yield match
 
@@ -63,7 +67,9 @@ class TrackMatchingResult(object):
         """Creates NodeMatchingResult objects for the supplied tuples."""
         for match in matches:
             idx, min_time, max_time = match
-            yield NodeMatchingResult(min_time, max_time, idx)
+            yield NodeMatchingResult(min_time=min_time,
+                max_time=max_time, min_idx=idx,
+                axis_node_count=self.axis_node_count)
 
     def filter_matches(self, matches):
         """
@@ -97,7 +103,7 @@ class TrackMatchingResult(object):
         return SQL.and_((SQL.eq_('track', self.track), SQL.or_(x.as_sql_clause() for x in self.matches)))
 
 class NodeMatchingResult(object):
-    def __init__(self, min_time, max_time, min_idx, max_idx=None, details=None):
+    def __init__(self, axis_node_count, min_time, max_time, min_idx, max_idx=None, details=None):
         if max_idx is None:
             max_idx = min_idx
 
@@ -109,6 +115,7 @@ class NodeMatchingResult(object):
 
         self.idx = (min_idx, max_idx)
         self.time = (min_time, max_time)
+        self.axis_node_count = axis_node_count
 
         if details is None:
             if min_idx != max_idx:
@@ -121,6 +128,19 @@ class NodeMatchingResult(object):
                     raise Exception('no source for node {}; range: {}-{}'.format(idx, min_idx, max_idx))
 
             self.details = details
+
+    @property
+    def matches_complete_axis(self):
+        return self.includes_first_node and self.includes_last_node
+
+    @property
+    def includes_first_node(self):
+        return not self.min_idx > 0
+
+    @property
+    def includes_last_node(self):
+        return not self.max_idx < self.axis_node_count
+
 
     def __len__(self):
         return self.idx[1] - self.idx[0] + 1
@@ -153,7 +173,7 @@ class NodeMatchingResult(object):
         try:
             self.time = (self.time[0], self.details[self.max_idx][1])
         except:
-            print 'Details:\n {}'.format(str(self.details))
+            log.debug('Details:\n %s', self.details)
 
     def as_sql_clause(self):
         """
@@ -196,7 +216,8 @@ class NodeMatchingResult(object):
             max_time=max(self.max_time, other.max_time),
             min_idx=min(self.min_idx, other.min_idx),
             max_idx=max(self.max_idx, other.max_idx),
-            details = self._merge_details(self.details, other.details))
+            details = self._merge_details(self.details, other.details),
+            axis_node_count=self.axis_node_count)
 
 def create_axis_subsets(measurements_fc, trajectories_fc, tracks_fc, axis_model,
                         out_dir = None, out_name = 'outputs.gdb', axes = None,
@@ -273,7 +294,6 @@ class TrackMatcher(object):
         self.node_fc = None
         self.node_buffer_fc = None
         self.node_buffer_fl = None
-        self.measurements_by_axis_fc = {}
 
         self.axis_ids = axes
         self.time = time
@@ -285,9 +305,9 @@ class TrackMatcher(object):
 
         self.fgdb.create_if_not_exists()
 
-        self.measurements_fl = self.measurements_fc.view('measurements_fl')
-        self.trajectories_fl = self.trajectories_fc.view('trajectories_fl')
-        self.axis_segment_fl = self.axis_model.segments.view('axis_segment_fl')
+        self.measurements_fl = self.measurements_fc.view()
+        self.trajectories_fl = self.trajectories_fc.view()
+        self.axis_segment_fl = self.axis_model.segments.view()
 
         # join the different node feature classes
         self.node_fc = self.create_node_feature_class()
@@ -296,8 +316,8 @@ class TrackMatcher(object):
         # create the MBR for all axis
         self.axis_mbr_fc = self.create_axis_mbr_feature_class()
 
-        self.node_buffer_fl = self.node_buffer_fc.view('node_buffer_fl')
-        self.axis_mbr_fl = self.axis_mbr_fc.view('axis_mbr_fl')
+        self.node_buffer_fl = self.node_buffer_fc.view()
+        self.axis_mbr_fl = self.axis_mbr_fc.view()
 
         try:
             target = self.fgdb.feature_class('measurements')
@@ -310,11 +330,12 @@ class TrackMatcher(object):
             self.trajectories_fl.delete()
             self.axis_segment_fl.delete()
 
-            self.node_buffer_fc.delete_if_exists()
-            self.node_fc.delete_if_exists()
-            self.axis_mbr_fc.delete_if_exists()
+            #self.node_buffer_fc.delete_if_exists()
+            #self.node_fc.delete_if_exists()
+            #self.axis_mbr_fc.delete_if_exists()
 
     def create_node_buffer_feature_class(self):
+        log.info('Creating node buffers with %s meters tolerance', self.node_tolerance)
         return self.node_fc.buffer(
             self.fgdb.feature_class('nodes_buffer'),
             str(self.node_tolerance) + ' Meters')
@@ -325,25 +346,26 @@ class TrackMatcher(object):
         fc = self.measurements_fc
         # create the feature class
         nfc = self.fgdb.feature_class('ec_subset_for_axis_{}'.format(axis))
-
         nfc.delete_if_exists()
-
         nfc.create(geometry_type = 'POINT', spatial_reference = SpatialReference(4326))
 
-        self.measurements_by_axis_fc[axis] = nfc
 
         # get the fields to create (ignore the geometry and OID field)
         fields = [(field.name, field.type) for field in fc.list_fields() if field.type != 'OID' and field.type != 'Geometry']
         # add the fields to the feature class and change the type of track to string
         for fname, ftype in fields:
-            nfc.add_field(fname, 'text' if fname == 'track' else ftype)
+            if fname == 'objectid':
+                fname = 'mongoid'
+            elif fname == 'track':
+                ftype = 'text'
 
-        # if we have no matches for this axis
+            nfc.add_field(fname, ftype)
 
+        nfc.add_field('complete_axis_match', 'SHORT')
         csv_path = os.path.join(self.out_dir, 'ec_subset_for_axis_{}.csv'.format(axis))
 
         if not matches:
-            print 'No track matches axis %s' % axis
+            log.info('No track matches axis %s', axis)
             self.create_empty_csv_export(csv_path)
         else:
             # select the matching measurements
@@ -356,41 +378,42 @@ class TrackMatcher(object):
             # the index of the track field
             track_idx = fnames.index('track')
 
-            with nfc.insert(fnames) as insert:
+            with nfc.insert(fnames + ['complete_axis_match']) as insert:
                 # iterate over every track
                 for match in matches:
                     track = str(match.track)
                     # iterate over every matching track interval
                     for idx, time in enumerate(match.matches):
+
                         where_clause = SQL.and_([SQL.eq_('track', track), time.as_sql_clause()])
                         new_track_name = '_'.join([track, str(idx)])
+                        log.info('%s matches complete axis? %s', new_track_name, time.matches_complete_axis)
                         with fc.search(fnames, where_clause = where_clause) as rows:
                             for row in rows:
-                                insert.insertRow([column if idx != track_idx else new_track_name for idx, column in enumerate(row)])
+                                insert.insertRow(
+                                    [column if idx != track_idx else new_track_name for idx, column in enumerate(row)] + [1 if time.matches_complete_axis else 0])
 
-        self.add_axis_segment_association(axis)
+            self.add_axis_segment_association(axis, nfc)
 
         return nfc
 
-    def add_axis_segment_association(self, axis):
-        extracted_axis = None
+    def add_axis_segment_association(self, axis, fc):
+        extracted_axis = self.fgdb.feature_class('axis_%s' % axis)
         try:
-            print 'Exporting axis %s' % axis
+            log.info('Exporting axis %s', axis)
             # select the segments of this axis
-
-            self.axis_model.segments.add_field('id', 'LONG')
-            axis_segment_fl = self.axis_model.segments.view('axis_segment_fl')
+            axis_segment_fl = self.axis_model.segments.view()
             axis_segment_fl.new_selection(SQL.eq_('Achsen_ID', SQL.quote_(axis)))
 
-            extracted_axis = self.fgdb.feature_class('axis_%s' % axis)
+
             axis_segment_fl.copy_features(extracted_axis)
 
-            fc = self.measurements_by_axis_fc[axis]
+
             fc.near(extracted_axis)
             fc.add_field('segment', 'LONG')
             fc.add_field('axis', 'TEXT')
-            ec_subset_fl = fc.view('ec_subset_fl')
-            extracted_axis_fl = extracted_axis.view('extracted_axis_fl')
+            ec_subset_fl = fc.view()
+            extracted_axis_fl = extracted_axis.view()
             try:
                 ec_subset_fl.add_join('NEAR_FID', extracted_axis_fl, extracted_axis_fl.oid_field_name)
                 ec_subset_fl.calculate_field('segment', '!axis_{}.segment_id!'.format(axis))
@@ -402,10 +425,10 @@ class TrackMatcher(object):
             fc.delete_field('NEAR_FID')
             fc.delete_field('NEAR_DIST')
         finally:
-            if extracted_axis is not None:
-                extracted_axis.delete()
+            extracted_axis.delete_if_exists()
 
     def create_axis_mbr_feature_class(self):
+        log.info('Creating MBR for axis')
         fc = self.fgdb.feature_class('axis_mbr')
         self.node_fc.minimum_bounding_geometry(fc, group_option = 'LIST', group_field = 'AXIS')
         return fc
@@ -416,7 +439,9 @@ class TrackMatcher(object):
         # select all measurements instersecting with the MBR
         self.measurements_fl.new_selection_by_location(self.axis_mbr_fl)
         # get the track ids of the intersecting measurements
-        with self.measurements_fl.search(['track'], sql_clause = ('DISTINCT', None)) as rows:
+        sql_clause = ('DISTINCT', None)
+        result = None
+        with self.measurements_fl.search(['track'], sql_clause = sql_clause) as rows:
             return set(row[0] for row in rows)
 
     def create_node_feature_class(self):
@@ -447,7 +472,7 @@ class TrackMatcher(object):
         return fc
 
     def get_track_matches(self, track, axis, num_consecutive_results = 4):
-        print 'checking track %s for axis %s' % (track, axis)
+        log.info('checking track %s for axis %s', track, axis)
         node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
         node_matches = [match for node in xrange(0, node_count) for match in get_node_matches(node)]
@@ -493,7 +518,7 @@ class TrackMatcher(object):
 
     def get_track_matches_for_axis(self, axis):
         tracks = self.get_tracks_for_axis_mbr(axis)
-        print '%d tracks found for axis mbr %s' % (len(tracks), axis)
+        log.info('%s tracks found for axis mbr %s: %s', len(tracks), axis, tracks)
         return [x for x in [self.get_track_matches(track, axis, 4) for track in tracks] if len(x) > 0]
 
     def create_csv_export_fields(self):
@@ -764,7 +789,7 @@ def find_passages_per_segment(fgdb, axis_track_segment, axis_segment):
     passages_without_stops = fgdb.table('passages_without_stops')
     passages_with_stops = fgdb.table('passages_with_stops')
     try:
-        passages_per_segment = axis_track_segment.view('passages_per_segment')
+        passages_per_segment = axis_track_segment.view()
         try:
             passages_per_segment.add_join('join_field', fgdb.table('stops_per_segment_per_track'), 'join_field')
 
@@ -796,7 +821,7 @@ def find_passages_per_segment(fgdb, axis_track_segment, axis_segment):
         finally:
             passages_per_segment.delete()
 
-        segments = axis_segment.view('axis_segment')
+        segments = axis_segment.view()
         try:
             segments.add_join('segment', passages_with_stops, 'segment')
             segments.add_join('segment', passages_without_stops, 'segment')
@@ -835,11 +860,13 @@ def create_axis_track_segment_table(fgdb, measurements_fc):
     axis_track_segment = fgdb.table('axis_track_segment')
     measurements_fc.statistics(
         out_table=axis_track_segment,
-        statistics_fields=[('id', 'COUNT')],
+        statistics_fields=[('id', 'COUNT'), ('time', 'MIN'), ('time', 'MAX')],
         case_field=('axis','track','segment'))
     axis_track_segment.delete_field('COUNT_id')
     axis_track_segment.delete_field('FREQUENCY')
     axis_track_segment.add_join_field(['axis', 'track', 'segment'])
+    axis_track_segment.rename_field('MIN_time', 'start_time')
+    axis_track_segment.rename_field('MAX_time', 'end_time')
     return axis_track_segment
 
 def create_axis_segment_table(fgdb, segments):
@@ -855,17 +882,70 @@ def create_axis_segment_table(fgdb, segments):
     axis_segment.delete_field('COUNT_segment_id')
     return axis_segment
 
-def create_segments_per_track_table(fgdb, axis_track_segment):
+def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_axis):
     """Creates a table containing the number of segments per track."""
     num_segments_per_track = fgdb.table('num_segments_per_track')
     axis_track_segment.statistics(
         out_table=num_segments_per_track,
-        statistics_fields=[('segment', 'COUNT')],
+        statistics_fields=[('segment', 'COUNT'), ('start_time', 'MIN'), ('end_time', 'MAX')],
         case_field=('axis', 'track'))
 
     num_segments_per_track.rename_field('FREQUENCY', 'segments')
+    num_segments_per_track.rename_field('MIN_start_time', 'start_time')
+    num_segments_per_track.rename_field('MAX_end_time', 'end_time')
     num_segments_per_track.delete_field('COUNT_segment')
     num_segments_per_track.add_join_field(['axis','track'])
+
+    num_segments_per_track.add_field('complete', 'SHORT')
+    num_segments_per_track.add_field('morning', 'SHORT')
+    num_segments_per_track.add_field('evening', 'SHORT')
+    num_segments_per_track.add_field('noon', 'SHORT')
+
+    view = num_segments_per_track.view()
+
+    try:
+        view.add_join('axis', num_segments_per_axis, 'axis')
+
+        code_block = textwrap.dedent("""\
+        from datetime import datetime
+
+        def parse(s):
+            format_string = '%d.%m.%Y %H:%M:%S.%f' if len(s)>19 else '%d.%m.%Y %H:%M:%S'
+            return datetime.strptime(s, format_string)
+
+        def is_complete(axis_segments, track_segments):
+            return True if axis_segments == track_segments else False
+
+        def is_in_range(start, end, min_hour, max_hour):
+            start = parse(start)
+            end = parse(end)
+            start = (0 <= start.weekday() < 5 and min_hour <= start < max_hour)
+            end = (0 <= end.weekday() < 5 and min_hour <= end < max_hour)
+            return start or end
+        """)
+
+        view.calculate_field('morning', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  6, 10)', code_block=code_block)
+        view.calculate_field('evening', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 15, 19)', code_block=code_block)
+        view.calculate_field('noon',    'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 12, 14)', code_block=code_block)
+        view.calculate_field('complete', 'is_complete(!num_segments_per_axis.segments!, !num_segments_per_track.segments!)', code_block=code_block)
+    finally:
+        view.delete()
+
+
+    t = num_segments_per_track.statistics(
+        out_table=fgdb.table('num_tracks_per_axis'),
+        statistics_fields=[
+            ('complete', 'SUM'),
+            ('morning', 'SUM'),
+            ('evening', 'SUM'),
+            ('noon', 'SUM')],
+        case_field='axis')
+    t.rename_field('SUM_complete', 'complete')
+    t.rename_field('SUM_morning', 'morning')
+    t.rename_field('SUM_evening', 'evening')
+    t.rename_field('SUM_noon', 'noon')
+    t.rename_field('FREQUENCY', 'sum')
+
     return num_segments_per_track
 
 def create_segments_per_axis_table(fgdb, axis_segment_fc):
@@ -887,10 +967,12 @@ def find_passages(fgdb, axis_model, measurements_fc):
     axis_segment = create_axis_segment_table(fgdb, axis_model.segments)
     axis_track_segment = create_axis_track_segment_table(fgdb, measurements_fc)
     try:
-        num_segments_per_track = create_segments_per_track_table(fgdb, axis_track_segment)
         num_segments_per_axis = create_segments_per_axis_table(fgdb, axis_model.segments)
+        num_segments_per_track = create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_axis)
         find_passages_per_axis(fgdb)
         find_passages_per_segment(fgdb, axis_track_segment, axis_segment)
+
+
     finally:
         pass
         axis_track_segment.delete()
