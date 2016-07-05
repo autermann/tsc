@@ -28,9 +28,11 @@ log.debug('modeldir: %s', modeldir)
 if not os.path.exists(workspace):
 	os.makedirs(workspace)
 
-sde = SDE(path = os.path.join(workspace, 'envirocar.sde'),
-          database = 'envirocar', hostname = 'localhost',
-          username = 'postgres',  password = 'postgres')
+#sde = SDE(path = os.path.join(workspace, 'envirocar.sde'),
+#          database = 'envirocar', hostname = 'localhost',
+#          username = 'postgres',  password = 'postgres')
+
+sde = FileGDB(os.path.join(basedir, 'envirocar.gdb'))
 
 axis_model = AxisModel.for_dir(modeldir)
 
