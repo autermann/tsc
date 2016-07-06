@@ -129,12 +129,11 @@ class NodeMatchingResult(object):
 
     @property
     def includes_first_node(self):
-        return not self.min_idx > 0
+        return self.min_idx == 0
 
     @property
     def includes_last_node(self):
-        return not self.max_idx < self.axis_node_count
-
+        return self.max_idx == (self.axis_node_count - 1)
 
     def __len__(self):
         return self.idx[1] - self.idx[0] + 1
