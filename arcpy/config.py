@@ -7,7 +7,7 @@ from ec import axis, AxisModel
 
 logging.basicConfig(
 	level=logging.DEBUG,
-	format='%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s:%(message)s',
+	format='%(asctime)s.%(msecs)03d %(levelname)-8s %(name)s: %(message)s',
 	datefmt='%Y-%m-%dT%H:%M:%S',
 	filename=r'C:\tsc\ec.log',
 	filemode='w' #overwrite log file
@@ -46,7 +46,7 @@ stops = fgdb.table('stops')
 
 
 axes = None
-#axes = [axis for axis in axis(xrange(3, 4 + 1))]
+#axes = [x for x in axis(xrange(16, 20))] + [x for x in axis(xrange(1, 10))]
 #axes = ['4_2']
 #axes = ['1_1','1_2']
 

@@ -1,4 +1,6 @@
-
+import gzip
+import os
+from glob import glob
 from itertools import izip, islice, tee
 
 def nwise(iterable, n = 2):
@@ -58,3 +60,17 @@ class SQL(object):
     @staticmethod
     def or_(iterable):
         return ' OR '.join('(%s)' % str(x) for x in iterable)
+
+def gzip_files(files):
+    return [gzip_file(file) for file in files]
+
+def gzip_file(file):
+    target = file + '.gz'
+    with open(file) as src:
+        with gzip.open(target, 'wb') as dst:
+            dst.writelines(src)
+    os.remove(file)
+    return target
+
+if __name__ == '__main__':
+    gzip_files(glob(r'C:\tsc\workspace\*.csv'))

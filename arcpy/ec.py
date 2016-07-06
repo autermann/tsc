@@ -5,7 +5,7 @@ from arcpy import SpatialReference, Array, Point, Polyline, FieldMappings, env
 from ooarcpy import FeatureClass, FileGDB
 from itertools import izip, islice, tee, groupby
 from datetime import timedelta, datetime
-from utils import first, nwise, min_max, SQL
+from utils import first, nwise, min_max, SQL, gzip_file
 import logging
 
 log = logging.getLogger(__name__)
@@ -51,9 +51,9 @@ class TrackMatchingResult(object):
         first and last nodes of the axis.
         """
         for match in matches:
-            if match.includes_first_node:
+            if not match.includes_first_node:
                 match.delete_min_idx()
-            if match.includes_last_node:
+            if not match.includes_last_node:
                 match.delete_max_idx()
             yield match
 
@@ -174,7 +174,7 @@ class NodeMatchingResult(object):
         Convert this result to a SQL-WHERE-clause that can be applied to the
         measurements table.
         """
-        return SQL.is_between_('time', ['date {}'.format(SQL.quote_(time)) for time in self.time])
+        return SQL.is_between_('time', ['date {}'.format(SQL.quote_(time.replace(microsecond=0))) for time in self.time])
 
     @property
     def min_idx(self):
@@ -391,6 +391,8 @@ class TrackMatcher(object):
 
             self.add_axis_segment_association(axis, nfc)
 
+        gzip_file(csv_path)
+
         return nfc
 
     def add_axis_segment_association(self, axis, fc):
@@ -485,7 +487,6 @@ class TrackMatcher(object):
                                                     SQL.eq_('NODE_RANK', node))))
         assert self.node_buffer_fl.count() == 1
         self.trajectories_fl.new_selection(SQL.eq_('track', track))
-        assert self.trajectories_fl.count() > 0
         self.trajectories_fl.subset_selection_by_location(self.node_buffer_fl)
         count = self.trajectories_fl.count()
         #log.debug('Selected trajectories of track %s that intersect node %s of axis %s: %d', track, node, axis, count)
@@ -533,7 +534,7 @@ class TrackMatcher(object):
             ('GPS Altitude(m)', 'gps_altitude', identity),
             ('Speed(km/h)', 'speed', identity),
             ('Datum', 'time', format_date),
-            ('id', 'id', identity),
+            ('id', 'objectid', identity),
             ('CO2(kg/h)', 'co2', identity),
             ('Consumption(l/h)', 'consumption', identity),
             ('Rpm(u/min)', 'rpm', identity),

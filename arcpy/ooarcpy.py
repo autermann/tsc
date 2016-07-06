@@ -1,14 +1,16 @@
 import arcpy
 import os
 import textwrap
-from abc import ABCMeta, abstractmethod, abstractproperty
 import logging
+
+from abc import ABCMeta, abstractmethod, abstractproperty
 
 log = logging.getLogger(__name__)
 
 def debug(command, param):
     pass
-    #log.debug('%s%s', command, str(param))
+    #if log.isEnabledFor(logging.DEBUG):
+    #    log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta
@@ -61,17 +63,9 @@ class SDE(ArcpyDatabase):
     def create(self):
         path, name = os.path.split(self.path)
 
-        debug('arcpy.management.CreateDatabaseConnection', {
-            'out_folder_path' : path,
-            'out_name' : name,
-            'database_platform' : 'POSTGRESQL',
-            'instance' : self.hostname,
-            'account_authentication' : 'DATABASE_AUTH',
-            'username' : self.username,
-            'password' : self.password,
-            'save_user_pass' : True,
-            'database' : self.database,
-            'schema' : self.schema})
+        debug('arcpy.management.CreateDatabaseConnection',
+            (path, name, 'POSTGRESQL', self.hostname, 'DATABASE_AUTH',
+            self.username, self.password, True, self.database, self.schema))
         arcpy.management.CreateDatabaseConnection(
             out_folder_path = path,
             out_name = name,
@@ -294,11 +288,8 @@ class ArcPyEntityView(ArcPyEntityBase):
         arcpy.management.AddJoin(self.id, field, other.id, other_field, join_type)
 
     def _select_by_attribute(self, selection_type='NEW_SELECTION', where_clause=None):
-        #invert_where_clause = 'INVERT' if invert_where_clause else 'NON_INVERT'
         debug('arcpy.management.SelectLayerByAttribute', (self.id, selection_type, where_clause))
-        #log.debug('%d features are selected in layer %s', self.count(), self.id)
         arcpy.management.SelectLayerByAttribute(self.id, selection_type, where_clause)
-        #log.debug('Selected %d features in layer %s', self.count(), self.id)
 
     def new_selection(self, where_clause, invert_where_clause=False):
         self._select_by_attribute('NEW_SELECTION', where_clause)
@@ -320,7 +311,6 @@ class ArcPyEntityView(ArcPyEntityBase):
 
 class SpatialArcPyEntityBase(ArcPyEntityBase):
     def buffer(self, out_feature_class, buffer_distance_or_field, line_side='FULL', line_end_type='ROUND', dissolve_option='NONE', dissolve_field=None, method='PLANAR'):
-
         try:
             out_feature_class = out_feature_class.id
         except AttributeError:
@@ -398,7 +388,6 @@ class TableLikeArcPyEntityBase(ArcPyEntityBase):
         out_path, out_name = os.path.split(out_table)
         debug('arcpy.conversion.TableToTable', (self.id, out_path,  out_name, where_clause, field_mapping))
         arcpy.conversion.TableToTable(self.id, out_path,  out_name, where_clause, field_mapping)
-
 
 class Table(ArcPyEntity, TableLikeArcPyEntityBase):
     def view(self, name=None):
