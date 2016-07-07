@@ -1,4 +1,5 @@
 import os
+import arcpy
 import csv
 import textwrap
 from arcpy import SpatialReference, Array, Point, Polyline, FieldMappings, env
@@ -568,7 +569,7 @@ class TrackMatcher(object):
 class Stop(object):
     SAMPLING_RATE = timedelta(seconds=5)
 
-    def __init__(self, axis, segment, track, start, stop):
+    def __init__(self, axis, segment, track, start, stop, complete):
         self.track = track
         self.segment = segment
         self.axis = axis
@@ -576,6 +577,7 @@ class Stop(object):
         # fix single measurement stops
         self.start = start - Stop.SAMPLING_RATE/2
         self.stop = stop + Stop.SAMPLING_RATE/2
+        self.complete = complete
 
     def __str__(self):
         return 'Axis: {0}, Segment: {1}, Track: {2}, Duration: {3}'.format(self.axis, self.segment, self.track, self.duration)
@@ -587,7 +589,7 @@ class Stop(object):
     @staticmethod
     def find(fc, stop_start_threshold=5, stop_end_threshold=10):
 
-        fields = ['axis', 'segment', 'track', 'time', 'speed']
+        fields = ['axis', 'segment', 'track', 'time', 'speed', 'complete_axis_match']
         sql_clause = (None, 'ORDER BY axis, track, time')
 
         ctrack = None
@@ -596,20 +598,26 @@ class Stop(object):
         stop_start = None
         stop_end = None
         is_stop = False
+        complete = None
 
         def create_stop():
             return Stop(axis=caxis,
                         segment=csegment,
                         track=ctrack,
                         start=stop_start,
-                        stop=stop_end)
+                        stop=stop_end,
+                        complete=complete)
 
         with fc.search(fields, sql_clause = sql_clause) as rows:
-            for axis, segment, track, time, speed in rows:
+            for axis, segment, track, time, speed, complete_axis_match in rows:
+
                 change = caxis != axis or ctrack != track or csegment != segment
                 if is_stop and change:
                     yield create_stop()
                     is_stop = False
+
+                complete = complete_axis_match
+
                 caxis = axis
                 ctrack = track
                 csegment = segment
@@ -626,8 +634,8 @@ class Stop(object):
                 yield create_stop()
 
 def create_stop_table(in_fc, out_table):
-    field_names = ['axis', 'segment', 'track', 'start_time', 'end_time', 'duration']
-    field_types = ['TEXT', 'LONG',    'TEXT',  'DATE',       'DATE',     'LONG'    ]
+    field_names = ['axis', 'segment', 'track', 'start_time', 'end_time', 'duration', 'complete']
+    field_types = ['TEXT', 'LONG',    'TEXT',  'DATE',       'DATE',     'LONG'    , 'SHORT'   ]
 
     out_table.delete_if_exists()
     out_table.create()
@@ -638,8 +646,35 @@ def create_stop_table(in_fc, out_table):
 
     with out_table.insert(field_names) as insert:
         for stop in Stop.find(in_fc, stop_start_threshold=5, stop_end_threshold=10):
-            duration = long(stop.duration.total_seconds() * 1000)
-            insert.insertRow((stop.axis, stop.segment, stop.track, stop.start, stop.stop, duration))
+            duration = long(stop.duration.total_seconds() * 10**3)
+            insert.insertRow((stop.axis, stop.segment, stop.track, stop.start, stop.stop, duration, stop.complete))
+
+
+    code_block = textwrap.dedent("""\
+    from datetime import datetime
+
+    def parse(s):
+        if len(s) > 19:
+            format_string = '%d.%m.%Y %H:%M:%S.%f'
+        elif len(s) > 10:
+            format_string = '%d.%m.%Y %H:%M:%S'
+        else:
+            format_string = '%d.%m.%Y'
+        return datetime.strptime(s, format_string)
+
+    def is_in_range(start, end, min_hour, max_hour):
+        start = parse(start)
+        end = parse(end)
+        start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
+        end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
+        return start or end
+    """)
+    out_table.add_field('morning', 'SHORT')
+    out_table.add_field('evening', 'SHORT')
+    out_table.add_field('noon', 'SHORT')
+    out_table.calculate_field('morning', 'is_in_range(!start_time!, !end_time!,  6, 10)', code_block=code_block)
+    out_table.calculate_field('evening', 'is_in_range(!start_time!, !end_time!, 15, 19)', code_block=code_block)
+    out_table.calculate_field('noon',    'is_in_range(!start_time!, !end_time!, 12, 14)', code_block=code_block)
 
 def axis(range):
     for axis in range:
@@ -665,6 +700,12 @@ def merge_feature_classes(feature_classes, target, delete=True):
             subset.delete()
 
 def create_tracks(in_fc, out_fc):
+
+    def is_in_range(start, end, min_hour, max_hour):
+        start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
+        end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
+        return start or end
+
     def _as_polyline(coordinates):
         points = (Point(*c) for c in coordinates)
         return Polyline(Array(points))
@@ -675,10 +716,16 @@ def create_tracks(in_fc, out_fc):
         coordinates = None
         start_time = None
         stop_time = None
+        complete = None
+        def create_row():
+            duration = long((stop_time - start_time).total_seconds() * 10**3)
+            morning = is_in_range(start_time, stop_time,  6, 10)
+            evening = is_in_range(start_time, stop_time, 15, 19)
+            noon = is_in_range(start_time, stop_time, 12, 14)
+            return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time, duration, complete, morning, evening, noon)
 
-        def create_row(): return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time)
+        for coords, axis, track, time, complete_axis_match in rows:
 
-        for coords, axis, track, time in rows:
 
             if caxis is None:
                 caxis = axis
@@ -698,6 +745,7 @@ def create_tracks(in_fc, out_fc):
 
             if coordinates is None:
                 coordinates = [coords]
+                complete = complete_axis_match
                 start_time = stop_time = time
             else:
                 coordinates.append(coords)
@@ -712,11 +760,14 @@ def create_tracks(in_fc, out_fc):
     out_fc.add_field('track', 'TEXT')
     out_fc.add_field('start_time', 'DATE')
     out_fc.add_field('stop_time', 'DATE')
+    out_fc.add_field('duration', 'LONG')
+    out_fc.add_field('complete', 'SHORT')
+    out_fc.add_field('morning', 'SHORT')
+    out_fc.add_field('evening', 'SHORT')
+    out_fc.add_field('noon', 'SHORT')
 
-
-
-    output_fields = ['SHAPE@', 'axis', 'track', 'start_time', 'stop_time']
-    input_fields = ['SHAPE@XY', 'axis', 'track', 'time']
+    output_fields = ['SHAPE@', 'axis', 'track', 'start_time', 'stop_time', 'duration', 'complete', 'morning', 'evening', 'noon']
+    input_fields = ['SHAPE@XY', 'axis', 'track', 'time', 'complete_axis_match']
     sql_clause = (None, 'ORDER BY axis, track, time')
 
     with out_fc.insert(output_fields) as insert:
@@ -724,76 +775,199 @@ def create_tracks(in_fc, out_fc):
             for polyline in _create_polylines(rows):
                 insert.insertRow(polyline)
 
-def calculate_statistics(measurements_fc, stops_table, fgdb):
-    def stats(case_fields, out_name):
-        out_table = fgdb.table(out_name)
-        measurements_fc.statistics(
+def calculate_statistics(fgdb):
+    tracks_view = fgdb.feature_class('tracks').view()
+    stops_view = fgdb.table('stops').view()
+    measurement_view = fgdb.feature_class('measurements').view()
+
+    def create_co2_consumption(postfix):
+        # consumption_by_axis_
+        out_table = fgdb.table('consumption_by_axis_' + postfix)
+        measurement_view.statistics(
             out_table=out_table,
-            statistics_fields=[
-                ('co2', 'MEAN'),
-                ('consumption','MEAN')
-            ],
-            case_field=case_fields)
+            statistics_fields=[('consumption','MEAN')],
+            case_field=['axis'])
+        out_table.rename_field('FREQUENCY', 'num_observations')
+        out_table.rename_field('MEAN_consumption', 'consumption')
+        # co2_by_axis_
+        out_table = fgdb.table('co2_by_axis_' + postfix)
+        measurement_view.statistics(
+            out_table=out_table,
+            statistics_fields=[('co2','MEAN')],
+            case_field=['axis'])
         out_table.rename_field('FREQUENCY', 'num_observations')
         out_table.rename_field('MEAN_co2', 'co2')
+        # consumption_by_axis_segment_
+        out_table = fgdb.table('consumption_by_axis_segment_' + postfix)
+        measurement_view.statistics(
+            out_table=out_table,
+            statistics_fields=[('consumption','MEAN')],
+            case_field=['axis', 'segment'])
+        out_table.rename_field('FREQUENCY', 'num_observations')
         out_table.rename_field('MEAN_consumption', 'consumption')
-        out_table.add_join_field(case_fields)
+        out_table.add_join_field(['axis', 'segment'])
+        # co2_by_axis_segment_
+        out_table = fgdb.table('co2_by_axis_segment_' + postfix)
+        measurement_view.statistics(
+            out_table=out_table,
+            statistics_fields=[('co2','MEAN')],
+            case_field=['axis', 'segment'])
+        out_table.rename_field('FREQUENCY', 'num_observations')
+        out_table.rename_field('MEAN_co2', 'co2')
+        out_table.add_join_field(['axis', 'segment'])
 
-    def stop_stats(case_fields, out_name):
-        out_table = fgdb.table(out_name)
-        stops_table.statistics(
+    def create_stops(postfix):
+        # stops_by_axis_
+        out_table = fgdb.table('stops_by_axis_' + postfix)
+        stops_view.statistics(
             out_table=out_table,
             statistics_fields=[('duration', 'MEAN')],
-            case_field=case_fields)
-        out_table.rename_field('FREQUENCY', 'num_stops')
+            case_field=['axis'])
+        out_table.rename_field('FREQUENCY', 'stops')
         out_table.rename_field('MEAN_duration', 'duration')
-        out_table.add_join_field(case_fields)
+        # stops_by_axis_segment_
+        out_table = fgdb.table('stops_by_axis_segment_' + postfix)
+        stops_view.statistics(
+            out_table=out_table,
+            statistics_fields=[('duration', 'MEAN')],
+            case_field=['axis','segment'])
+        out_table.rename_field('FREQUENCY', 'stops')
+        out_table.rename_field('MEAN_duration', 'duration')
+        out_table.add_join_field(['axis', 'segment'])
 
-    stats(['axis'], 'per_axis')
-    stats(['axis', 'segment'], 'per_segment')
-    stats(['axis', 'track'], 'per_axis_per_track')
-    stats(['axis', 'track', 'segment'], 'per_segment_per_track')
+    def create_travel_time_axis(postfix):
+        # travel_time_by_axis_
+        out_table = fgdb.table('travel_time_by_axis_' + postfix)
+        tracks_view.statistics(
+            out_table=out_table,
+            statistics_fields=[('duration', 'MEAN')],
+            case_field=['axis'])
+        out_table.rename_field('FREQUENCY', 'num_tracks')
+        out_table.rename_field('MEAN_duration', 'travel_time')
 
-    stop_stats(['axis'], 'stops_per_axis')
-    stop_stats(['axis', 'segment'], 'stops_per_segment')
-    stop_stats(['axis', 'track'], 'stops_per_axis_per_track')
-    stop_stats(['axis', 'track', 'segment'], 'stops_per_segment_per_track')
+    def create_travel_time_segment(postfix):
+        # travel_time_by_axis_segment_
+        tmp_table = fgdb.table('travel_time_by_axis_segment_' + postfix + '_tmp')
 
-def find_passages_per_segment(fgdb, axis_track_segment, axis_segment):
+        measurement_view.statistics(
+            out_table=tmp_table,
+            statistics_fields=[('time', 'MIN'), ('time', 'MAX')],
+            case_field=['axis', 'segment', 'track'])
+        code_block = textwrap.dedent("""\
+        from datetime import datetime
+        def parse(s):
+            if len(s) > 19:
+                format_string = '%d.%m.%Y %H:%M:%S.%f'
+            elif len(s) > 10:
+                format_string = '%d.%m.%Y %H:%M:%S'
+            else:
+                format_string = '%d.%m.%Y'
+            return datetime.strptime(s, format_string)
+        def get_duration(start, end):
+            return (parse(end)-parse(start)).total_seconds()*1000
+        """)
+        tmp_table.add_field('duration', 'LONG')
+        tmp_table.calculate_field('duration', 'get_duration(!MIN_time!, !MAX_time!)', code_block=code_block)
+
+        out_table = fgdb.table('travel_time_by_axis_segment_' + postfix)
+        tmp_table.statistics(
+            out_table=out_table,
+            statistics_fields=[('duration', 'MEAN')],
+            case_field=['axis','segment'])
+        out_table.rename_field('FREQUENCY', 'num_tracks')
+        out_table.rename_field('MEAN_duration', 'travel_time')
+        out_table.add_join_field(['axis', 'segment'])
+
+        tmp_table.delete()
+    try:
+        measurement_view.clear_selection()
+        create_co2_consumption('all')
+        create_travel_time_segment('all')
+
+        measurement_view.new_selection(SQL.eq_('morning', 1))
+        create_co2_consumption('morning')
+        create_travel_time_segment('morning')
+
+        measurement_view.new_selection(SQL.eq_('evening', 1))
+        create_co2_consumption('evening')
+        create_travel_time_segment('evening')
+
+        measurement_view.new_selection(SQL.eq_('noon', 1))
+        create_co2_consumption('noon')
+        create_travel_time_segment('noon')
+
+        stops_view.clear_selection()
+        create_stops('all')
+
+        stops_view.new_selection(SQL.eq_('morning', 1))
+        create_stops('morning')
+
+        stops_view.new_selection(SQL.eq_('evening', 1))
+        create_stops('evening')
+
+        stops_view.new_selection(SQL.eq_('noon', 1))
+        create_stops('noon')
+
+        tracks_view.new_selection(SQL.eq_('complete', 1))
+        create_travel_time_axis('all')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('morning', 1))))
+        create_travel_time_axis('morning')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('evening', 1))))
+        create_travel_time_axis('evening')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('noon', 1))))
+        create_travel_time_axis('noon')
+
+    finally:
+        tracks_view.delete()
+        measurement_view.delete()
+        stops_view.delete()
+
+def find_passages_by_axis_segment(fgdb, stops_by_axis_segment_track, axis_segment, axis_track_segment, out_table):
     passages_without_stops = fgdb.table('passages_without_stops')
     passages_with_stops = fgdb.table('passages_with_stops')
+
     try:
-        passages_per_segment = axis_track_segment.view()
+        stops_by_axis_segment_track = stops_by_axis_segment_track.view()
+        passages_by_axis_segment = axis_track_segment.view()
         try:
-            passages_per_segment.add_join('join_field', fgdb.table('stops_per_segment_per_track'), 'join_field')
+            passages_by_axis_segment.add_join('join_field', stops_by_axis_segment_track, 'join_field')
 
             # select all passages that have no stop
-            passages_per_segment.new_selection(SQL.or_((SQL.is_null_('stops_per_segment_per_track.num_stops'),
-                                                        SQL.eq_('stops_per_segment_per_track.num_stops', 0))))
+            passages_by_axis_segment.new_selection(SQL.or_((SQL.is_null_('%s.num_stops' % stops_by_axis_segment_track.id),
+                                                            SQL.eq_('%s.num_stops' % stops_by_axis_segment_track.id, 0))))
 
-            passages_per_segment.statistics(
+            log.debug('passages_without_stops count: %d', passages_by_axis_segment.count())
+            passages_by_axis_segment.statistics(
                 out_table=passages_without_stops,
-                statistics_fields=[('axis_track_segment.track', 'COUNT')],
-                case_field=('axis_track_segment.axis', 'axis_track_segment.segment'))
-            passages_without_stops.rename_field('axis_track_segment_axis', 'axis')
-            passages_without_stops.rename_field('axis_track_segment_segment', 'segment')
+                statistics_fields=[('%s.track' % passages_by_axis_segment.id, 'COUNT')],
+                case_field=(
+                    '%s.axis' % passages_by_axis_segment.id,
+                    '%s.segment' % passages_by_axis_segment.id))
+            passages_without_stops.rename_field('%s_axis' % passages_by_axis_segment.id, 'axis')
+            passages_without_stops.rename_field('%s_segment' % passages_by_axis_segment.id, 'segment')
             passages_without_stops.rename_field('FREQUENCY', 'passages_without_stops')
-            passages_without_stops.delete_field('COUNT_axis_track_segment_track')
+            passages_without_stops.delete_field('COUNT_%s_track' % passages_by_axis_segment.id)
 
             # select all passages that have stops
-            passages_per_segment.new_selection('stops_per_segment_per_track.num_stops >= 0')
-
-            passages_per_segment.statistics(
+            passages_by_axis_segment.new_selection('%s.num_stops >= 0' % stops_by_axis_segment_track.id)
+            log.debug('passages_with_stops count: %d', passages_by_axis_segment.count())
+            passages_by_axis_segment.statistics(
                 out_table=passages_with_stops,
-                statistics_fields=[('axis_track_segment.track', 'COUNT')],
-                case_field=('axis_track_segment.axis', 'axis_track_segment.segment'))
-            passages_with_stops.rename_field('axis_track_segment_axis', 'axis')
-            passages_with_stops.rename_field('axis_track_segment_segment', 'segment')
+                statistics_fields=[('%s.track' % passages_by_axis_segment.id, 'COUNT')],
+                case_field=(
+                    '%s.axis' % passages_by_axis_segment.id,
+                    '%s.segment' % passages_by_axis_segment.id))
+            passages_with_stops.rename_field('%s_axis' % passages_by_axis_segment.id, 'axis')
+            passages_with_stops.rename_field('%s_segment' % passages_by_axis_segment.id, 'segment')
             passages_with_stops.rename_field('FREQUENCY', 'passages_with_stops')
-            passages_with_stops.delete_field('COUNT_axis_track_segment_track')
+            passages_with_stops.delete_field('COUNT_%s_track' % passages_by_axis_segment.id)
 
         finally:
-            passages_per_segment.delete()
+            passages_by_axis_segment.delete()
+            stops_by_axis_segment_track.delete()
 
         segments = axis_segment.view()
         try:
@@ -814,34 +988,90 @@ def find_passages_per_segment(fgdb, axis_track_segment, axis_segment):
                 fms.removeFieldMap(fms.findFieldMapIndex(field))
 
 
-            passages_per_segment = fgdb.table('passages_per_segment')
-            segments.to_table(passages_per_segment, field_mapping=fms)
-            passages_per_segment.rename_field('passages_with_stops_passages_with_stops', 'passages_with_stops')
-            passages_per_segment.rename_field('passages_without_stops_passages_without_stops', 'passages_without_stops')
-            passages_per_segment.add_field('passages_overall', 'LONG')
-            passages_per_segment.set_field_if_null('passages_with_stops', 0)
-            passages_per_segment.set_field_if_null('passages_without_stops', 0)
-            passages_per_segment.calculate_field('passages_overall', '!passages_with_stops! + !passages_without_stops!')
-
+            out_table = out_table
+            segments.to_table(out_table, field_mapping=fms)
+            out_table.rename_field('passages_with_stops_passages_with_stops', 'passages_with_stops')
+            out_table.rename_field('passages_without_stops_passages_without_stops', 'passages_without_stops')
+            out_table.add_field('passages_overall', 'LONG')
+            out_table.set_field_if_null('passages_with_stops', 0)
+            out_table.set_field_if_null('passages_without_stops', 0)
+            out_table.calculate_field('passages_overall', '!passages_with_stops! + !passages_without_stops!')
         finally:
             segments.delete()
     finally:
         passages_with_stops.delete_if_exists()
         passages_without_stops.delete_if_exists()
 
-def create_axis_track_segment_table(fgdb, measurements_fc):
-    """Creates a table containing all axis/track/segment combinations."""
-    axis_track_segment = fgdb.table('axis_track_segment')
-    measurements_fc.statistics(
-        out_table=axis_track_segment,
-        statistics_fields=[('id', 'COUNT'), ('time', 'MIN'), ('time', 'MAX')],
-        case_field=('axis','track','segment'))
-    axis_track_segment.delete_field('COUNT_id')
-    axis_track_segment.delete_field('FREQUENCY')
-    axis_track_segment.add_join_field(['axis', 'track', 'segment'])
-    axis_track_segment.rename_field('MIN_time', 'start_time')
-    axis_track_segment.rename_field('MAX_time', 'end_time')
-    return axis_track_segment
+def find_passages_by_axis(fgdb, stops_by_axis_track, axis, axis_track, out_table):
+    passages_without_stops = fgdb.table('passages_without_stops')
+    passages_with_stops = fgdb.table('passages_with_stops')
+
+    try:
+        stops_by_axis_track = stops_by_axis_track.view()
+        passages_by_axis = axis_track.view()
+
+        try:
+            passages_by_axis.add_join('join_field', stops_by_axis_track, 'join_field')
+
+
+            # select all passages that have no stop
+            passages_by_axis.new_selection(SQL.or_((SQL.is_null_('%s.num_stops' % stops_by_axis_track.id),
+                                                    SQL.eq_('%s.num_stops' % stops_by_axis_track.id, 0))))
+
+            log.debug('passages_without_stops count: %d', passages_by_axis.count())
+            passages_by_axis.statistics(
+                out_table=passages_without_stops,
+                statistics_fields=[('%s.track' % passages_by_axis.id, 'COUNT')],
+                case_field=('%s.axis' % passages_by_axis.id))
+            passages_without_stops.rename_field('%s_axis' % passages_by_axis.id, 'axis')
+            passages_without_stops.rename_field('FREQUENCY', 'passages_without_stops')
+            passages_without_stops.delete_field('COUNT_%s_track' % passages_by_axis.id)
+
+            # select all passages that have stops
+            passages_by_axis.new_selection('%s.num_stops > 0' % stops_by_axis_track.id)
+            log.debug('passages_with_stops count: %d', passages_by_axis.count())
+            passages_by_axis.statistics(
+                out_table=passages_with_stops,
+                statistics_fields=[('%s.track' % passages_by_axis.id, 'COUNT')],
+                case_field=('%s.axis' % passages_by_axis.id))
+            passages_with_stops.rename_field('%s_axis' % passages_by_axis.id, 'axis')
+            passages_with_stops.rename_field('FREQUENCY', 'passages_with_stops')
+            passages_with_stops.delete_field('COUNT_%s_track' % passages_by_axis.id)
+
+        finally:
+            passages_by_axis.delete()
+            stops_by_axis_track.delete()
+
+        axes = axis.view()
+        try:
+            axes.add_join('axis', passages_with_stops, 'axis')
+            axes.add_join('axis', passages_without_stops, 'axis')
+
+            fms = FieldMappings()
+            fms.addTable('axis')
+
+            fields = ('passages_with_stops_OBJECTID',
+                      'passages_with_stops_axis',
+                      'passages_without_stops_OBJECTID',
+                      'passages_without_stops_axis')
+
+            for field in fields:
+                fms.removeFieldMap(fms.findFieldMapIndex(field))
+
+
+            out_table = out_table
+            axes.to_table(out_table, field_mapping=fms)
+            out_table.rename_field('passages_with_stops_passages_with_stops', 'passages_with_stops')
+            out_table.rename_field('passages_without_stops_passages_without_stops', 'passages_without_stops')
+            out_table.add_field('passages_overall', 'LONG')
+            out_table.set_field_if_null('passages_with_stops', 0)
+            out_table.set_field_if_null('passages_without_stops', 0)
+            out_table.calculate_field('passages_overall', '!passages_with_stops! + !passages_without_stops!')
+        finally:
+            axes.delete()
+    finally:
+        passages_with_stops.delete_if_exists()
+        passages_without_stops.delete_if_exists()
 
 def create_axis_segment_table(fgdb, segments):
     """Creates a table all axis/segment combinatinons."""
@@ -855,6 +1085,18 @@ def create_axis_segment_table(fgdb, segments):
     axis_segment.delete_field('FREQUENCY')
     axis_segment.delete_field('COUNT_segment_id')
     return axis_segment
+
+def create_axis_table(fgdb, segments):
+    """Creates a table all axis/segment combinatinons."""
+    out_table = fgdb.table('axis')
+    segments.statistics(
+        out_table=out_table,
+        statistics_fields=[('Achsen_ID', 'COUNT')],
+        case_field=('Achsen_ID'))
+    out_table.rename_field('Achsen_ID', 'axis')
+    out_table.delete_field('FREQUENCY')
+    out_table.delete_field('COUNT_Achsen_ID')
+    return out_table
 
 def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_axis):
     """Creates a table containing the number of segments per track."""
@@ -893,8 +1135,8 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
         def is_in_range(start, end, min_hour, max_hour):
             start = parse(start)
             end = parse(end)
-            start = (0 <= start.weekday() < 5 and min_hour <= start < max_hour)
-            end = (0 <= end.weekday() < 5 and min_hour <= end < max_hour)
+            start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
+            end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
             return start or end
         """)
 
@@ -934,20 +1176,111 @@ def create_segments_per_axis_table(fgdb, axis_segment_fc):
     num_segments_per_axis.delete_field('COUNT_segment_id')
     return num_segments_per_axis
 
-def find_passages_per_axis(fgdb):
-    pass
-
-def find_passages(fgdb, axis_model, measurements_fc):
+def find_passages(fgdb, axis_model):
+    measurements = fgdb.feature_class('measurements').view()
+    stops = fgdb.table('stops').view()
     axis_segment = create_axis_segment_table(fgdb, axis_model.segments)
-    axis_track_segment = create_axis_track_segment_table(fgdb, measurements_fc)
+    axis = create_axis_table(fgdb, axis_model.segments)
     try:
-        num_segments_per_axis = create_segments_per_axis_table(fgdb, axis_model.segments)
-        num_segments_per_track = create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_axis)
-        find_passages_per_axis(fgdb)
-        find_passages_per_segment(fgdb, axis_track_segment, axis_segment)
+        def create_passages_by_axis_segment_table(postfix, sql=None):
+            def create_axis_track_segment_table(name, sql=None):
+                if sql is None: measurements.clear_selection()
+                else: measurements.new_selection(sql)
+                out_table = fgdb.table(name)
+                measurements.statistics(
+                    out_table=out_table,
+                    statistics_fields=[('objectid', 'COUNT'), ('time', 'MIN'), ('time', 'MAX')],
+                    case_field=('axis','track','segment'))
+                out_table.delete_field('COUNT_objectid')
+                out_table.delete_field('FREQUENCY')
+                out_table.rename_field('MIN_time', 'start_time')
+                out_table.rename_field('MAX_time', 'end_time')
+                out_table.add_join_field(['axis', 'segment', 'track'])
+                return out_table
 
+            def create_stops_by_axis_segment_track(name, sql=None):
+                if sql is None: stops.clear_selection()
+                else: stops.new_selection(sql)
+                out_table = fgdb.table(name)
+                stops.statistics(
+                    out_table=out_table,
+                    statistics_fields=[('duration', 'MEAN')],
+                    case_field=['axis','segment','track'])
+                out_table.rename_field('FREQUENCY', 'num_stops')
+                out_table.rename_field('MEAN_duration', 'duration')
+                out_table.add_join_field(['axis', 'segment', 'track'])
+                return out_table
+
+            axis_track_segment = create_axis_track_segment_table('axis_track_segment_' + postfix, sql)
+            stops_by_axis_segment_track = create_stops_by_axis_segment_track('stops_by_axis_segment_track_' + postfix, sql)
+            try:
+                find_passages_by_axis_segment(
+                    fgdb,
+                    stops_by_axis_segment_track,
+                    axis_segment,
+                    axis_track_segment,
+                    fgdb.table('passages_by_axis_segment_' + postfix))
+            finally:
+                stops_by_axis_segment_track.delete_if_exists()
+                axis_track_segment.delete_if_exists()
+
+        def create_passages_by_axis_table(postfix, sql):
+            def create_axis_track_table(name, sql=None):
+                if sql is None:
+                    measurements.new_selection(SQL.eq_('complete_axis_match', 1))
+                else:
+                    measurements.new_selection(SQL.and_((SQL.eq_('complete_axis_match', 1), sql)))
+                out_table = fgdb.table(name)
+                measurements.statistics(
+                    out_table=out_table,
+                    statistics_fields=[('objectid', 'COUNT'), ('time', 'MIN'), ('time', 'MAX')],
+                    case_field=('axis', 'track'))
+                out_table.delete_field('COUNT_objectid')
+                out_table.delete_field('FREQUENCY')
+                out_table.rename_field('MIN_time', 'start_time')
+                out_table.rename_field('MAX_time', 'end_time')
+                out_table.add_join_field(['axis', 'track'])
+                return out_table
+
+            def create_stops_by_axis_track(name, sql=None):
+                if sql is None:
+                    stops.new_selection(SQL.eq_('complete', 1))
+                else:
+                    stops.new_selection(SQL.and_((SQL.eq_('complete', 1), sql)))
+                out_table = fgdb.table(name)
+                stops.statistics(
+                    out_table=out_table,
+                    statistics_fields=[('duration', 'MEAN')],
+                    case_field=['axis', 'track'])
+                out_table.rename_field('FREQUENCY', 'num_stops')
+                out_table.rename_field('MEAN_duration', 'duration')
+                out_table.add_join_field(['axis', 'track'])
+                return out_table
+
+            axis_track = create_axis_track_table('axis_track_' + postfix, sql)
+            stops_by_axis_track = create_stops_by_axis_track('stops_by_axis_track_' + postfix, sql)
+            try:
+                find_passages_by_axis(
+                    fgdb,
+                    stops_by_axis_track,
+                    axis,
+                    axis_track,
+                    fgdb.table('passages_by_axis_' + postfix))
+            finally:
+                stops_by_axis_track.delete_if_exists()
+                axis_track.delete_if_exists()
+
+
+        create_passages_by_axis_segment_table('all', None)
+        create_passages_by_axis_segment_table('morning', SQL.eq_('morning', 1))
+        create_passages_by_axis_segment_table('evening', SQL.eq_('evening', 1))
+        create_passages_by_axis_segment_table('noon', SQL.eq_('noon', 1))
+        create_passages_by_axis_table('all', None)
+        create_passages_by_axis_table('morning', SQL.eq_('morning', 1))
+        create_passages_by_axis_table('evening', SQL.eq_('evening', 1))
+        create_passages_by_axis_table('noon', SQL.eq_('noon', 1))
 
     finally:
-        pass
-        axis_track_segment.delete()
-        axis_segment.delete()
+        stops.delete()
+        axis_segment.delete_if_exists()
+        axis.delete_if_exists()

@@ -8,9 +8,8 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 log = logging.getLogger(__name__)
 
 def debug(command, param):
-    pass
-    #if log.isEnabledFor(logging.DEBUG):
-    #    log.debug('%s%s', command, str(param))
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta
@@ -152,9 +151,11 @@ class ArcPyEntityBase(object):
         self.calculate_field(field, '!{0}! if !{0}! is not None else {1}'.format(field, value))
 
     def rename_field(self, old_name, new_name):
-        self.add_field(new_name, self.get_field_type(old_name))
-        self.calculate_field(new_name, '!{}!'.format(old_name))
-        self.delete_field(old_name)
+        debug('arcpy.management.AlterField', (self.id, old_name, new_name))
+        arcpy.management.AlterField(self.id, old_name, new_name)
+        #self.add_field(new_name, self.get_field_type(old_name))
+        #self.calculate_field(new_name, '!{}!'.format(old_name))
+        #self.delete_field(old_name)
 
     def list_fields(self):
         return arcpy.ListFields(self.id)
@@ -198,6 +199,8 @@ class ArcPyEntityBase(object):
         fields = ', '.join('!{}!'.format(field) for field in fields)
         expression = '"|".join(str(x) for x in ({}))'.format(fields)
         self.calculate_field(field_name, expression)
+        debug('arcpy.management.AddIndex', (self.id, field_name, field_name + '_idx'))
+        arcpy.management.AddIndex(self.id, field_name, field_name + '_idx')
 
     def get_distinct_values(self, attribute):
         with self.search((attribute), sql_clause=('DISTINCT', None)) as rows:
