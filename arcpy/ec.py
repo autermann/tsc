@@ -326,8 +326,8 @@ class TrackMatcher(object):
             self.trajectories_fl.delete()
             self.axis_segment_fl.delete()
             self.tracks_fl.delete()
-            #self.node_buffer_fc.delete_if_exists()
-            #self.node_fc.delete_if_exists()
+            self.node_buffer_fc.delete_if_exists()
+            self.node_fc.delete_if_exists()
             #self.axis_mbr_fc.delete_if_exists()
 
     def create_node_buffer_feature_class(self):

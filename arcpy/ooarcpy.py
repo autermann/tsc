@@ -349,6 +349,15 @@ class SpatialArcPyEntityBase(ArcPyEntityBase):
         arcpy.management.MinimumBoundingGeometry(self.id, out_feature_class, geometry_type, group_option, group_field, mbg_fields_option)
         return FeatureClass(out_feature_class)
 
+    def to_feature_class(self, out_feature_class, where_clause=None, field_mapping=None):
+        try:
+            out_feature_class = out_feature_class.id
+        except AttributeError:
+            pass
+        out_path, out_name = os.path.split(out_feature_class)
+        debug('arcpy.conversion.FeatureClassToFeatureClass', (self.id, out_path,  out_name, where_clause, field_mapping))
+        arcpy.conversion.FeatureClassToFeatureClass(self.id, out_path,  out_name, where_clause, field_mapping)
+
 class FeatureClass(ArcPyEntity, SpatialArcPyEntityBase):
     def view(self, name=None):
         return FeatureLayer(source=self, name=name)
