@@ -8,7 +8,7 @@ if __name__ == '__main__':
 
     setenv()
 
-    start = datetime(2016, 6, 6)
+    start = datetime(2016, 6, 6) - timedelta(hours=2)
     weeks = 4
 
 

@@ -672,9 +672,10 @@ def create_stop_table(in_fc, out_table):
     out_table.add_field('morning', 'SHORT')
     out_table.add_field('evening', 'SHORT')
     out_table.add_field('noon', 'SHORT')
-    out_table.calculate_field('morning', 'is_in_range(!start_time!, !end_time!,  6, 10)', code_block=code_block)
-    out_table.calculate_field('evening', 'is_in_range(!start_time!, !end_time!, 15, 19)', code_block=code_block)
-    out_table.calculate_field('noon',    'is_in_range(!start_time!, !end_time!, 12, 14)', code_block=code_block)
+    # times are in UTC, we want them to be in +2
+    out_table.calculate_field('morning', 'is_in_range(!start_time!, !end_time!,  4, 8)', code_block=code_block)
+    out_table.calculate_field('evening', 'is_in_range(!start_time!, !end_time!, 13, 17)', code_block=code_block)
+    out_table.calculate_field('noon',    'is_in_range(!start_time!, !end_time!, 10, 12)', code_block=code_block)
 
 def axis(range):
     for axis in range:
@@ -719,9 +720,9 @@ def create_tracks(in_fc, out_fc):
         complete = None
         def create_row():
             duration = long((stop_time - start_time).total_seconds() * 10**3)
-            morning = is_in_range(start_time, stop_time,  6, 10)
-            evening = is_in_range(start_time, stop_time, 15, 19)
-            noon = is_in_range(start_time, stop_time, 12, 14)
+            morning = is_in_range(start_time, stop_time,  4, 8)
+            evening = is_in_range(start_time, stop_time, 13, 17)
+            noon = is_in_range(start_time, stop_time, 10, 12)
             return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time, duration, complete, morning, evening, noon)
 
         for coords, axis, track, time, complete_axis_match in rows:
@@ -1140,9 +1141,9 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
             return start or end
         """)
 
-        view.calculate_field('morning', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  6, 10)', code_block=code_block)
-        view.calculate_field('evening', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 15, 19)', code_block=code_block)
-        view.calculate_field('noon',    'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 12, 14)', code_block=code_block)
+        view.calculate_field('morning', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  4, 8)', code_block=code_block)
+        view.calculate_field('evening', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 13, 17)', code_block=code_block)
+        view.calculate_field('noon',    'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 10, 12)', code_block=code_block)
         view.calculate_field('complete', 'is_complete(!num_segments_per_axis.segments!, !num_segments_per_track.segments!)', code_block=code_block)
     finally:
         view.delete()

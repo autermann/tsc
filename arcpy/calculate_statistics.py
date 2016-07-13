@@ -1,5 +1,5 @@
-from ec import calculate_statistics, create_tracks, create_stop_table, find_passages
 from config import fgdb as fgdb_all, setenv, axis_model, workspace
+from ec import calculate_statistics, create_tracks, create_stop_table, find_passages
 from ooarcpy import FileGDB
 import os
 
