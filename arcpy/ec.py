@@ -839,6 +839,8 @@ def calculate_statistics(fgdb):
     def create_travel_time_axis(postfix):
         # travel_time_by_axis_
         out_table = fgdb.table('travel_time_by_axis_' + postfix)
+        # accomodate for single measurement tracks
+        tracks_view.subset_selection('duration > 0')
         tracks_view.statistics(
             out_table=out_table,
             statistics_fields=[('duration', 'MEAN')],
@@ -870,8 +872,12 @@ def calculate_statistics(fgdb):
         tmp_table.add_field('duration', 'LONG')
         tmp_table.calculate_field('duration', 'get_duration(!MIN_time!, !MAX_time!)', code_block=code_block)
 
+        tmp_table_view = tmp_table.view()
+        # accomodate for single measurement tracks
+        tmp_table_view.new_selection('duration > 0')
+
         out_table = fgdb.table('travel_time_by_axis_segment_' + postfix)
-        tmp_table.statistics(
+        tmp_table_view.statistics(
             out_table=out_table,
             statistics_fields=[('duration', 'MEAN')],
             case_field=['axis','segment'])
@@ -879,6 +885,7 @@ def calculate_statistics(fgdb):
         out_table.rename_field('MEAN_duration', 'travel_time')
         out_table.add_join_field(['axis', 'segment'])
 
+        tmp_table_view.delete()
         tmp_table.delete()
     try:
         measurement_view.clear_selection()
