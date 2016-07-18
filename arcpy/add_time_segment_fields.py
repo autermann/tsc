@@ -17,6 +17,7 @@ if __name__ == '__main__':
             format_string = '%d.%m.%Y'
         return datetime.strptime(s, format_string)
 
+    def workday_is_in_range(time, min_hour, max_hour):
         time = parse(time)
         if min_hour <= max_hour:
             return (time.weekday() < 5 and min_hour <= time.hour < max_hour)
@@ -36,7 +37,15 @@ if __name__ == '__main__':
     fc.add_field('weekend_evening', 'SHORT')
     fc.add_field('weekend_night', 'SHORT')
 
+    fc.add_field('workday_morning', 'SHORT')
+    fc.add_field('workday_noon', 'SHORT')
+    fc.add_field('workday_evening', 'SHORT')
+    fc.add_field('workday_night', 'SHORT')
 
+    fc.calculate_field('workday_morning', 'workday_is_in_range(!time!,  4, 8)', code_block=code_block)
+    fc.calculate_field('workday_noon',    'workday_is_in_range(!time!, 10, 12)', code_block=code_block)
+    fc.calculate_field('workday_evening', 'workday_is_in_range(!time!, 13, 17)', code_block=code_block)
+    fc.calculate_field('workday_night',   'workday_is_in_range(!time!, 19, 4)', code_block=code_block)
 
     fc.calculate_field('weekend_morning', 'weekend_is_in_range(!time!,  4, 8)', code_block=code_block)
     fc.calculate_field('weekend_noon',    'weekend_is_in_range(!time!, 10, 12)', code_block=code_block)
