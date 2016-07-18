@@ -17,15 +17,28 @@ if __name__ == '__main__':
             format_string = '%d.%m.%Y'
         return datetime.strptime(s, format_string)
 
-    def is_in_range(time, min_hour, max_hour):
         time = parse(time)
+        if min_hour <= max_hour:
+            return (time.weekday() < 5 and min_hour <= time.hour < max_hour)
+        else:
+            return (time.weekday() < 5 and (min_hour <= time.hour or time.hour < max_hour))
 
-        return (0 <= time.weekday() < 5 and min_hour <= time.hour < max_hour)
+    def weekend_is_in_range(time, min_hour, max_hour):
+        time = parse(time)
+        if min_hour <= max_hour:
+            return (time.weekday() >= 5 and min_hour <= time.hour < max_hour)
+        else:
+            return (time.weekday() >= 5 and (min_hour <= time.hour or time.hour < max_hour))
     """)
     fc = fgdb.feature_class('measurements')
-    fc.add_field('morning', 'SHORT')
-    fc.add_field('evening', 'SHORT')
-    fc.add_field('noon', 'SHORT')
-    fc.calculate_field('morning', 'is_in_range(!time!,  4, 8)', code_block=code_block)
-    fc.calculate_field('evening', 'is_in_range(!time!, 13, 17)', code_block=code_block)
-    fc.calculate_field('noon',    'is_in_range(!time!, 10, 12)', code_block=code_block)
+    fc.add_field('weekend_morning', 'SHORT')
+    fc.add_field('weekend_noon', 'SHORT')
+    fc.add_field('weekend_evening', 'SHORT')
+    fc.add_field('weekend_night', 'SHORT')
+
+
+
+    fc.calculate_field('weekend_morning', 'weekend_is_in_range(!time!,  4, 8)', code_block=code_block)
+    fc.calculate_field('weekend_noon',    'weekend_is_in_range(!time!, 10, 12)', code_block=code_block)
+    fc.calculate_field('weekend_evening', 'weekend_is_in_range(!time!, 13, 17)', code_block=code_block)
+    fc.calculate_field('weekend_night',   'weekend_is_in_range(!time!, 19, 4)', code_block=code_block)

@@ -6,9 +6,22 @@ if __name__ == '__main__':
 
     classifiers = [
         'all',
+        'weekend_evening',
+        'weekend_morning',
+        'weekend_noon',
+        'weekend_night',
         'evening',
         'morning',
-        'noon'
+        'noon',
+        'night',
+        'weekday_evening',
+        'weekday_morning',
+        'weekday_noon',
+        'weekday_night',
+        'workday_evening',
+        'workday_morning',
+        'workday_noon',
+        'workday_night'
     ]
 
     tables = [

@@ -662,20 +662,48 @@ def create_stop_table(in_fc, out_table):
             format_string = '%d.%m.%Y'
         return datetime.strptime(s, format_string)
 
-    def is_in_range(start, end, min_hour, max_hour):
+    def workday_is_in_range(start, end, min_hour, max_hour):
         start = parse(start)
         end = parse(end)
-        start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
-        end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
+        if min_hour <= max_hour:
+            start = (start.weekday() < 5 and min_hour <= start.hour < max_hour)
+            end = (end.weekday() < 5 and min_hour <= end.hour < max_hour)
+        else:
+            start = (start.weekday() < 5 and (min_hour <= start.hour or start.hour < max_hour))
+            end = (end.weekday() < 5 and (min_hour <= end.hour or end.hour < max_hour))
+        return start or end
+
+    def weekend_is_in_range(start, end, min_hour, max_hour):
+        start = parse(start)
+        end = parse(end)
+        if min_hour <= max_hour:
+            start = (start.weekday() >= 5 and min_hour <= start.hour < max_hour)
+            end = (end.weekday() >= 5 and min_hour <= end.hour < max_hour)
+        else:
+            start = (start.weekday() >= 5 and (min_hour <= start.hour or start.hour < max_hour))
+            end = (end.weekday() >= 5 and (min_hour <= end.hour or end.hour < max_hour))
         return start or end
     """)
-    out_table.add_field('morning', 'SHORT')
-    out_table.add_field('evening', 'SHORT')
-    out_table.add_field('noon', 'SHORT')
+    out_table.add_field('weekend_morning', 'SHORT')
+    out_table.add_field('weekend_noon', 'SHORT')
+    out_table.add_field('weekend_evening', 'SHORT')
+    out_table.add_field('weekend_night', 'SHORT')
+
+    out_table.add_field('workday_morning', 'SHORT')
+    out_table.add_field('workday_noon', 'SHORT')
+    out_table.add_field('workday_evening', 'SHORT')
+    out_table.add_field('workday_night', 'SHORT')
+
     # times are in UTC, we want them to be in +2
-    out_table.calculate_field('morning', 'is_in_range(!start_time!, !end_time!,  4, 8)', code_block=code_block)
-    out_table.calculate_field('evening', 'is_in_range(!start_time!, !end_time!, 13, 17)', code_block=code_block)
-    out_table.calculate_field('noon',    'is_in_range(!start_time!, !end_time!, 10, 12)', code_block=code_block)
+    out_table.calculate_field('workday_morning', 'workday_is_in_range(!start_time!, !end_time!,  4, 8)', code_block=code_block)
+    out_table.calculate_field('workday_noon',    'workday_is_in_range(!start_time!, !end_time!, 10, 12)', code_block=code_block)
+    out_table.calculate_field('workday_evening', 'workday_is_in_range(!start_time!, !end_time!, 13, 17)', code_block=code_block)
+    out_table.calculate_field('workday_night',   'workday_is_in_range(!start_time!, !end_time!, 19, 4)', code_block=code_block)
+
+    out_table.calculate_field('weekend_morning', 'weekend_is_in_range(!start_time!, !end_time!,  4, 8)', code_block=code_block)
+    out_table.calculate_field('weekend_noon',    'weekend_is_in_range(!start_time!, !end_time!, 10, 12)', code_block=code_block)
+    out_table.calculate_field('weekend_evening', 'weekend_is_in_range(!start_time!, !end_time!, 13, 17)', code_block=code_block)
+    out_table.calculate_field('weekend_night',   'weekend_is_in_range(!start_time!, !end_time!, 19, 4)', code_block=code_block)
 
 def axis(range):
     for axis in range:
@@ -701,10 +729,22 @@ def merge_feature_classes(feature_classes, target, delete=True):
             subset.delete()
 
 def create_tracks(in_fc, out_fc):
+    def workday_is_in_range(start, end, min_hour, max_hour):
+        if min_hour <= max_hour:
+            start = (start.weekday() < 5 and min_hour <= start.hour < max_hour)
+            end = (end.weekday() < 5 and min_hour <= end.hour < max_hour)
+        else:
+            start = (start.weekday() < 5 and (min_hour <= start.hour or start.hour < max_hour))
+            end = (end.weekday() < 5 and (min_hour <= end.hour or end.hour < max_hour))
+        return start or end
 
-    def is_in_range(start, end, min_hour, max_hour):
-        start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
-        end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
+    def weekend_is_in_range(start, end, min_hour, max_hour):
+        if min_hour <= max_hour:
+            start = (start.weekday() >= 5 and min_hour <= start.hour < max_hour)
+            end = (end.weekday() >= 5 and min_hour <= end.hour < max_hour)
+        else:
+            start = (start.weekday() >= 5 and (min_hour <= start.hour or start.hour < max_hour))
+            end = (end.weekday() >= 5 and (min_hour <= end.hour or end.hour < max_hour))
         return start or end
 
     def _as_polyline(coordinates):
@@ -720,10 +760,20 @@ def create_tracks(in_fc, out_fc):
         complete = None
         def create_row():
             duration = long((stop_time - start_time).total_seconds() * 10**3)
-            morning = is_in_range(start_time, stop_time,  4, 8)
-            evening = is_in_range(start_time, stop_time, 13, 17)
-            noon = is_in_range(start_time, stop_time, 10, 12)
-            return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time, duration, complete, morning, evening, noon)
+
+            weekend_morning = weekend_is_in_range(start_time, stop_time,  4, 8)
+            weekend_noon = weekend_is_in_range(start_time, stop_time, 10, 12)
+            weekend_evening = weekend_is_in_range(start_time, stop_time, 13, 17)
+            weekend_night = weekend_is_in_range(start_time, stop_time, 19, 4)
+
+            workday_morning = workday_is_in_range(start_time, stop_time,  4, 8)
+            workday_noon = workday_is_in_range(start_time, stop_time, 10, 12)
+            workday_evening = workday_is_in_range(start_time, stop_time, 13, 17)
+            workday_night = workday_is_in_range(start_time, stop_time, 19, 4)
+
+            return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time, duration, complete,
+                weekend_morning, weekend_noon, weekend_evening, weekend_night,
+                workday_morning, workday_noon, workday_evening, workday_night)
 
         for coords, axis, track, time, complete_axis_match in rows:
 
@@ -763,11 +813,22 @@ def create_tracks(in_fc, out_fc):
     out_fc.add_field('stop_time', 'DATE')
     out_fc.add_field('duration', 'LONG')
     out_fc.add_field('complete', 'SHORT')
-    out_fc.add_field('morning', 'SHORT')
-    out_fc.add_field('evening', 'SHORT')
-    out_fc.add_field('noon', 'SHORT')
 
-    output_fields = ['SHAPE@', 'axis', 'track', 'start_time', 'stop_time', 'duration', 'complete', 'morning', 'evening', 'noon']
+    out_fc.add_field('weekend_morning', 'SHORT')
+    out_fc.add_field('weekend_noon', 'SHORT')
+    out_fc.add_field('weekend_evening', 'SHORT')
+    out_fc.add_field('weekend_night', 'SHORT')
+
+    out_fc.add_field('workday_morning', 'SHORT')
+    out_fc.add_field('workday_noon', 'SHORT')
+    out_fc.add_field('workday_evening', 'SHORT')
+    out_fc.add_field('workday_night', 'SHORT')
+
+    output_fields = [
+        'SHAPE@', 'axis', 'track', 'start_time', 'stop_time', 'duration', 'complete',
+        'weekend_morning', 'weekend_noon', 'weekend_evening', 'weekend_night',
+        'workday_morning', 'workday_noon', 'workday_evening', 'workday_night'
+    ]
     input_fields = ['SHAPE@XY', 'axis', 'track', 'time', 'complete_axis_match']
     sql_clause = (None, 'ORDER BY axis, track, time')
 
@@ -892,41 +953,92 @@ def calculate_statistics(fgdb):
         create_co2_consumption('all')
         create_travel_time_segment('all')
 
-        measurement_view.new_selection(SQL.eq_('morning', 1))
-        create_co2_consumption('morning')
-        create_travel_time_segment('morning')
+        measurement_view.new_selection(SQL.eq_('weekend_morning', 1))
+        create_co2_consumption('weekend_morning')
+        create_travel_time_segment('weekend_morning')
 
-        measurement_view.new_selection(SQL.eq_('evening', 1))
-        create_co2_consumption('evening')
-        create_travel_time_segment('evening')
+        measurement_view.new_selection(SQL.eq_('workday_morning', 1))
+        create_co2_consumption('workday_morning')
+        create_travel_time_segment('workday_morning')
 
-        measurement_view.new_selection(SQL.eq_('noon', 1))
-        create_co2_consumption('noon')
-        create_travel_time_segment('noon')
+        measurement_view.new_selection(SQL.eq_('weekend_evening', 1))
+        create_co2_consumption('weekend_evening')
+        create_travel_time_segment('weekend_evening')
+
+        measurement_view.new_selection(SQL.eq_('workday_evening', 1))
+        create_co2_consumption('workday_evening')
+        create_travel_time_segment('workday_evening')
+
+        measurement_view.new_selection(SQL.eq_('weekend_noon', 1))
+        create_co2_consumption('weekend_noon')
+        create_travel_time_segment('weekend_noon')
+
+        measurement_view.new_selection(SQL.eq_('workday_noon', 1))
+        create_co2_consumption('workday_noon')
+        create_travel_time_segment('workday_noon')
+
+        measurement_view.new_selection(SQL.eq_('weekend_night', 1))
+        create_co2_consumption('weekend_night')
+        create_travel_time_segment('weekend_night')
+
+        measurement_view.new_selection(SQL.eq_('workday_night', 1))
+        create_co2_consumption('workday_night')
+        create_travel_time_segment('workday_night')
 
         stops_view.clear_selection()
         create_stops('all')
 
-        stops_view.new_selection(SQL.eq_('morning', 1))
-        create_stops('morning')
+        stops_view.new_selection(SQL.eq_('weekend_morning', 1))
+        create_stops('weekend_morning')
 
-        stops_view.new_selection(SQL.eq_('evening', 1))
-        create_stops('evening')
+        stops_view.new_selection(SQL.eq_('workday_morning', 1))
+        create_stops('workday_morning')
 
-        stops_view.new_selection(SQL.eq_('noon', 1))
-        create_stops('noon')
+        stops_view.new_selection(SQL.eq_('weekend_evening', 1))
+        create_stops('weekend_evening')
+
+        stops_view.new_selection(SQL.eq_('workday_evening', 1))
+        create_stops('workday_evening')
+
+        stops_view.new_selection(SQL.eq_('weekend_noon', 1))
+        create_stops('weekend_noon')
+
+        stops_view.new_selection(SQL.eq_('workday_noon', 1))
+        create_stops('workday_noon')
+
+        stops_view.new_selection(SQL.eq_('weekend_night', 1))
+        create_stops('weekend_night')
+
+        stops_view.new_selection(SQL.eq_('workday_night', 1))
+        create_stops('workday_night')
 
         tracks_view.new_selection(SQL.eq_('complete', 1))
         create_travel_time_axis('all')
 
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('morning', 1))))
-        create_travel_time_axis('morning')
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_morning', 1))))
+        create_travel_time_axis('workday_morning')
 
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('evening', 1))))
-        create_travel_time_axis('evening')
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_morning', 1))))
+        create_travel_time_axis('weekend_morning')
 
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('noon', 1))))
-        create_travel_time_axis('noon')
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_evening', 1))))
+        create_travel_time_axis('workday_evening')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_evening', 1))))
+        create_travel_time_axis('weekend_evening')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_noon', 1))))
+        create_travel_time_axis('workday_noon')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_noon', 1))))
+        create_travel_time_axis('weekend_noon')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_night', 1))))
+        create_travel_time_axis('workday_night')
+
+        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_night', 1))))
+        create_travel_time_axis('weekend_night')
+
 
     finally:
         tracks_view.delete()
@@ -1121,9 +1233,15 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
     num_segments_per_track.add_join_field(['axis','track'])
 
     num_segments_per_track.add_field('complete', 'SHORT')
-    num_segments_per_track.add_field('morning', 'SHORT')
-    num_segments_per_track.add_field('evening', 'SHORT')
-    num_segments_per_track.add_field('noon', 'SHORT')
+    num_segments_per_track.add_field('weekend_morning', 'SHORT')
+    num_segments_per_track.add_field('weekend_evening', 'SHORT')
+    num_segments_per_track.add_field('weekend_night', 'SHORT')
+    num_segments_per_track.add_field('weekend_noon', 'SHORT')
+
+    num_segments_per_track.add_field('workday_morning', 'SHORT')
+    num_segments_per_track.add_field('workday_evening', 'SHORT')
+    num_segments_per_track.add_field('workday_night', 'SHORT')
+    num_segments_per_track.add_field('workday_noon', 'SHORT')
 
     view = num_segments_per_track.view()
 
@@ -1134,23 +1252,52 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
         from datetime import datetime
 
         def parse(s):
-            format_string = '%d.%m.%Y %H:%M:%S.%f' if len(s)>19 else '%d.%m.%Y %H:%M:%S'
+            format_string = None
+            if len(s) > 19:
+                format_string = '%d.%m.%Y %H:%M:%S.%f'
+            elif len(s) > 10:
+                format_string = '%d.%m.%Y %H:%M:%S'
+            else:
+                format_string = '%d.%m.%Y'
             return datetime.strptime(s, format_string)
+
 
         def is_complete(axis_segments, track_segments):
             return True if axis_segments == track_segments else False
 
-        def is_in_range(start, end, min_hour, max_hour):
+        def workday_is_in_range(start, end, min_hour, max_hour):
             start = parse(start)
             end = parse(end)
-            start = (0 <= start.weekday() < 5 and min_hour <= start.hour < max_hour)
-            end = (0 <= end.weekday() < 5 and min_hour <= end.hour < max_hour)
+            if min_hour <= max_hour:
+                start = (start.weekday() < 5 and min_hour <= start.hour < max_hour)
+                end = (end.weekday() < 5 and min_hour <= end.hour < max_hour)
+            else:
+                start = (start.weekday() < 5 and (min_hour <= start.hour or start.hour < max_hour))
+                end = (end.weekday() < 5 and (min_hour <= end.hour or end.hour < max_hour))
+            return start or end
+
+        def weekend_is_in_range(start, end, min_hour, max_hour):
+            start = parse(start)
+            end = parse(end)
+            if min_hour <= max_hour:
+                start = (start.weekday() >= 5 and min_hour <= start.hour < max_hour)
+                end = (end.weekday() >= 5 and min_hour <= end.hour < max_hour)
+            else:
+                start = (start.weekday() >= 5 and (min_hour <= start.hour or start.hour < max_hour))
+                end = (end.weekday() >= 5 and (min_hour <= end.hour or end.hour < max_hour))
             return start or end
         """)
 
-        view.calculate_field('morning', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  4, 8)', code_block=code_block)
-        view.calculate_field('evening', 'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 13, 17)', code_block=code_block)
-        view.calculate_field('noon',    'is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 10, 12)', code_block=code_block)
+        view.calculate_field('workday_morning',  'workday_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  4, 8)', code_block=code_block)
+        view.calculate_field('workday_evening',  'workday_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 13, 17)', code_block=code_block)
+        view.calculate_field('workday_noon',     'workday_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 10, 12)', code_block=code_block)
+        view.calculate_field('workday_night',    'workday_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 19, 4)', code_block=code_block)
+
+        view.calculate_field('weekend_morning',  'weekend_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!,  4, 8)', code_block=code_block)
+        view.calculate_field('weekend_evening',  'weekend_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 13, 17)', code_block=code_block)
+        view.calculate_field('weekend_noon',     'weekend_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 10, 12)', code_block=code_block)
+        view.calculate_field('weekend_night',    'weekend_is_in_range(!num_segments_per_track.start_time!, !num_segments_per_track.end_time!, 19, 4)', code_block=code_block)
+
         view.calculate_field('complete', 'is_complete(!num_segments_per_axis.segments!, !num_segments_per_track.segments!)', code_block=code_block)
     finally:
         view.delete()
@@ -1160,14 +1307,25 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
         out_table=fgdb.table('num_tracks_per_axis'),
         statistics_fields=[
             ('complete', 'SUM'),
-            ('morning', 'SUM'),
-            ('evening', 'SUM'),
-            ('noon', 'SUM')],
+            ('weekend_morning', 'SUM'),
+            ('weekend_evening', 'SUM'),
+            ('weekend_noon', 'SUM')
+            ('weekend_night', 'SUM'),
+            ('workday_morning', 'SUM'),
+            ('workday_evening', 'SUM'),
+            ('workday_noon', 'SUM')
+            ('workday_night', 'SUM')],
         case_field='axis')
     t.rename_field('SUM_complete', 'complete')
-    t.rename_field('SUM_morning', 'morning')
-    t.rename_field('SUM_evening', 'evening')
-    t.rename_field('SUM_noon', 'noon')
+    t.rename_field('SUM_workday_morning', 'workday_morning')
+    t.rename_field('SUM_workday_evening', 'workday_evening')
+    t.rename_field('SUM_workday_noon', 'workday_noon')
+    t.rename_field('SUM_workday_night', 'workday_night')
+
+    t.rename_field('SUM_weekend_morning', 'weekend_morning')
+    t.rename_field('SUM_weekend_evening', 'weekend_evening')
+    t.rename_field('SUM_weekend_noon', 'weekend_noon')
+    t.rename_field('SUM_weekend_night', 'weekend_night')
     t.rename_field('FREQUENCY', 'sum')
 
     return num_segments_per_track
@@ -1280,13 +1438,23 @@ def find_passages(fgdb, axis_model):
 
 
         create_passages_by_axis_segment_table('all', None)
-        create_passages_by_axis_segment_table('morning', SQL.eq_('morning', 1))
-        create_passages_by_axis_segment_table('evening', SQL.eq_('evening', 1))
-        create_passages_by_axis_segment_table('noon', SQL.eq_('noon', 1))
+        create_passages_by_axis_segment_table('workday_morning', SQL.eq_('workday_morning', 1))
+        create_passages_by_axis_segment_table('workday_evening', SQL.eq_('workday_evening', 1))
+        create_passages_by_axis_segment_table('workday_noon', SQL.eq_('workday_noon', 1))
+        create_passages_by_axis_segment_table('workday_night', SQL.eq_('workday_night', 1))
+        create_passages_by_axis_segment_table('weekend_morning', SQL.eq_('weekend_morning', 1))
+        create_passages_by_axis_segment_table('weekend_evening', SQL.eq_('weekend_evening', 1))
+        create_passages_by_axis_segment_table('weekend_noon', SQL.eq_('weekend_noon', 1))
+        create_passages_by_axis_segment_table('weekend_night', SQL.eq_('weekend_night', 1))
         create_passages_by_axis_table('all', None)
-        create_passages_by_axis_table('morning', SQL.eq_('morning', 1))
-        create_passages_by_axis_table('evening', SQL.eq_('evening', 1))
-        create_passages_by_axis_table('noon', SQL.eq_('noon', 1))
+        create_passages_by_axis_table('workday_morning', SQL.eq_('workday_morning', 1))
+        create_passages_by_axis_table('workday_evening', SQL.eq_('workday_evening', 1))
+        create_passages_by_axis_table('workday_noon', SQL.eq_('workday_noon', 1))
+        create_passages_by_axis_table('workday_night', SQL.eq_('workday_night', 1))
+        create_passages_by_axis_table('weekend_morning', SQL.eq_('weekend_morning', 1))
+        create_passages_by_axis_table('weekend_evening', SQL.eq_('weekend_evening', 1))
+        create_passages_by_axis_table('weekend_noon', SQL.eq_('weekend_noon', 1))
+        create_passages_by_axis_table('weekend_night', SQL.eq_('weekend_night', 1))
 
     finally:
         stops.delete()

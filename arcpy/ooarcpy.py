@@ -111,6 +111,7 @@ class ArcPyEntityBase(object):
         self.id = id
 
     def delete(self):
+        debug('arcpy.management.Delete', (self.id,))
         arcpy.management.Delete(self.id)
 
     @property

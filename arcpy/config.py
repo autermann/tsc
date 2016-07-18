@@ -10,7 +10,7 @@ logging.basicConfig(
 	format='%(asctime)s.%(msecs)03d %(levelname)-8s %(name)s: %(message)s',
 	datefmt='%Y-%m-%dT%H:%M:%S',
 	filename=r'C:\tsc\ec.log',
-	filemode='w' #overwrite log file
+	filemode='a'
 )
 
 log = logging.getLogger(__name__)
