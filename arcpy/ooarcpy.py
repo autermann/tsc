@@ -202,7 +202,11 @@ class ArcPyEntityBase(object):
         expression = '"|".join(str(x) for x in ({}))'.format(fields)
         self.calculate_field(field_name, expression)
         debug('arcpy.management.AddIndex', (self.id, field_name, field_name + '_idx'))
-        arcpy.management.AddIndex(self.id, field_name, field_name + '_idx')
+        self.add_index(field_name, field_name + '_idx')
+
+    def add_index(self, fields, index_name):
+        debug('arcpy.management.AddIndex', (self.id, fields, index_name))
+        arcpy.management.AddIndex(self.id, fields=fields, index_name=index_name)
 
     def get_distinct_values(self, attribute):
         with self.search((attribute), sql_clause=('DISTINCT', None)) as rows:
