@@ -33,6 +33,8 @@ node_modules
 
 workspace/
 model/
+model_neu/
+delivery/
 
 *.txt.xml
 *.csv
