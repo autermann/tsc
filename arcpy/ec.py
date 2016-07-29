@@ -9,10 +9,13 @@ from datetime import timedelta, datetime
 from utils import first, nwise, min_max, SQL, gzip_file
 import logging
 
+MAX_TIME_SPAN_SAME_NODE = timedelta(seconds=10)
+MAX_TIME_SPAN_CONSECUTIVE_NODES = timedelta(seconds=60)
+
 log = logging.getLogger(__name__)
 
 class TrackMatchingResult(object):
-    MAX_TIME_SPAN = timedelta(seconds=10)
+
 
     def __init__(self, track, matches, node_count, num_consecutive_results):
         self.track = track
@@ -76,12 +79,14 @@ class TrackMatchingResult(object):
 
         for a, b in nwise(matches, 2):
             # non consecutive nodes
-            non_consecutive = not (b.min_idx <= a.max_idx + 1 <= b.max_idx)
+            consecutive = b.min_idx <= a.max_idx + 1 <= b.max_idx
 
             # same node, but a too big time difference
-            too_big_time_difference = (a.idx == b.idx and (a.max_time - b.min_time) < TrackMatchingResult.MAX_TIME_SPAN)
+            too_big_time_difference = a.idx == b.idx and (a.max_time - b.min_time) < MAX_TIME_SPAN_SAME_NODE
+            # TODO consecutive nodes, but a too big time difference
+            #too_big_time_difference |= consecutive and (a.max_time - b.min_time) < MAX_TIME_SPAN_CONSECUTIVE_NODES
 
-            if non_consecutive or too_big_time_difference:
+            if not consecutive or too_big_time_difference:
                 if current is not None:
                     yield current
                     current = None
@@ -373,8 +378,9 @@ class TrackMatcher(object):
             fnames =  ['SHAPE@XY'] + [fname for fname, ftype in fields]
             # the index of the track field
             track_idx = fnames.index('track')
+            insertNames = [name if name != 'objectid' else 'mongoid' for name in fnames] + ['complete_axis_match']
 
-            with nfc.insert(fnames + ['complete_axis_match']) as insert:
+            with nfc.insert(insertNames) as insert:
                 # iterate over every track
                 for match in matches:
                     track = str(match.track)
