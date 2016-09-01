@@ -953,12 +953,13 @@ def calculate_statistics(model, fgdb):
                 for row in rows: return row[0]
             return None
 
-        def get_point(track, time):
+        def get_point(track, axis, time):
 
             min_time = time.replace(microsecond=0) - timedelta(seconds=1)
             max_time = time.replace(microsecond=0) + timedelta(seconds=1)
 
             where_clause = SQL.and_((
+                SQL.eq_('axis', SQL.quote(axis)),
                 SQL.eq_('track', SQL.quote_(track)),
                 SQL.is_between_('time', (
                     'date {}'.format(SQL.quote_(datetime.strftime(min_time, '%Y-%m-%d %H:%M:%S'))),
@@ -974,7 +975,7 @@ def calculate_statistics(model, fgdb):
         with tmp_table.update(['axis', 'segment', 'track', 'MIN_time', 'MAX_time', 'duration']) as rows:
             for row in rows:
                 axis, segment, track, min_time, max_time, duration = row
-                tlength = get_length_of_track_on_segment(track, min_time, max_time)
+                tlength = get_length_of_track_on_segment(track, axis, min_time, max_time)
                 slength = get_segment_length(axis, segment)
                 if tlength > 0:
                     factor = slength/tlength
