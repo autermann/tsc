@@ -954,97 +954,36 @@ def calculate_statistics(fgdb):
 
         tmp_table_view.delete()
         tmp_table.delete()
+
     try:
         measurement_view.clear_selection()
         create_co2_consumption('all')
         create_travel_time_segment('all')
 
-        measurement_view.new_selection(SQL.eq_('weekend_morning', 1))
-        create_co2_consumption('weekend_morning')
-        create_travel_time_segment('weekend_morning')
-
-        measurement_view.new_selection(SQL.eq_('workday_morning', 1))
-        create_co2_consumption('workday_morning')
-        create_travel_time_segment('workday_morning')
-
-        measurement_view.new_selection(SQL.eq_('weekend_evening', 1))
-        create_co2_consumption('weekend_evening')
-        create_travel_time_segment('weekend_evening')
-
-        measurement_view.new_selection(SQL.eq_('workday_evening', 1))
-        create_co2_consumption('workday_evening')
-        create_travel_time_segment('workday_evening')
-
-        measurement_view.new_selection(SQL.eq_('weekend_noon', 1))
-        create_co2_consumption('weekend_noon')
-        create_travel_time_segment('weekend_noon')
-
-        measurement_view.new_selection(SQL.eq_('workday_noon', 1))
-        create_co2_consumption('workday_noon')
-        create_travel_time_segment('workday_noon')
-
-        measurement_view.new_selection(SQL.eq_('weekend_night', 1))
-        create_co2_consumption('weekend_night')
-        create_travel_time_segment('weekend_night')
-
-        measurement_view.new_selection(SQL.eq_('workday_night', 1))
-        create_co2_consumption('workday_night')
-        create_travel_time_segment('workday_night')
+        for time_of_week in ['workday', 'weekend']:
+          for time_of_day in ['morning', 'evening', 'noon', 'night']:
+            selector = '{}_{}'.format(time_of_week, time_of_day)
+            measurement_view.new_selection(SQL.eq_(selector, 1))
+            create_co2_consumption(selector)
+            create_travel_time_segment(selector)
 
         stops_view.clear_selection()
         create_stops('all')
 
-        stops_view.new_selection(SQL.eq_('weekend_morning', 1))
-        create_stops('weekend_morning')
-
-        stops_view.new_selection(SQL.eq_('workday_morning', 1))
-        create_stops('workday_morning')
-
-        stops_view.new_selection(SQL.eq_('weekend_evening', 1))
-        create_stops('weekend_evening')
-
-        stops_view.new_selection(SQL.eq_('workday_evening', 1))
-        create_stops('workday_evening')
-
-        stops_view.new_selection(SQL.eq_('weekend_noon', 1))
-        create_stops('weekend_noon')
-
-        stops_view.new_selection(SQL.eq_('workday_noon', 1))
-        create_stops('workday_noon')
-
-        stops_view.new_selection(SQL.eq_('weekend_night', 1))
-        create_stops('weekend_night')
-
-        stops_view.new_selection(SQL.eq_('workday_night', 1))
-        create_stops('workday_night')
+        for time_of_week in ['workday', 'weekend']:
+          for time_of_day in ['morning', 'evening', 'noon', 'night']:
+            selector = '{}_{}'.format(time_of_week, time_of_day)
+            stops_view.new_selection(SQL.eq_(selector, 1))
+            create_stops(selector)
 
         tracks_view.new_selection(SQL.eq_('complete', 1))
         create_travel_time_axis('all')
 
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_morning', 1))))
-        create_travel_time_axis('workday_morning')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_morning', 1))))
-        create_travel_time_axis('weekend_morning')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_evening', 1))))
-        create_travel_time_axis('workday_evening')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_evening', 1))))
-        create_travel_time_axis('weekend_evening')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_noon', 1))))
-        create_travel_time_axis('workday_noon')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_noon', 1))))
-        create_travel_time_axis('weekend_noon')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('workday_night', 1))))
-        create_travel_time_axis('workday_night')
-
-        tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_('weekend_night', 1))))
-        create_travel_time_axis('weekend_night')
-
+        for time_of_week in ['workday', 'weekend']:
+          for time_of_day in ['morning', 'evening', 'noon', 'night']:
+            selector = '{}_{}'.format(time_of_week, time_of_day)
+            tracks_view.new_selection(SQL.and_((SQL.eq_('complete', 1), SQL.eq_(selector, 1))))
+            create_travel_time_axis(selector)
 
     finally:
         tracks_view.delete()
