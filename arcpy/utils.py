@@ -46,8 +46,16 @@ class SQL(object):
         return '%s IS NULL' % name
 
     @staticmethod
+    def is_not_null_(name):
+        return '%s IS NOT NULL' % name
+
+    @staticmethod
     def eq_(name, value):
         return '%s = %s' % (name, str(value))
+
+    @staticmethod
+    def neq_(name, value):
+        return '%s <> %s' % (name, str(value))
 
     @staticmethod
     def quote_(value):
