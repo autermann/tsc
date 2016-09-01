@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 basedir = r'C:\tsc'
 workspace = os.path.join(basedir, 'workspace')
-modeldir = os.path.join(basedir, 'model_neu')
+modeldir = os.path.join(basedir, 'model')
 
 log.debug('basedir: %s', basedir)
 log.debug('workspace: %s', workspace)
@@ -30,7 +30,7 @@ if not os.path.exists(workspace):
 #          database = 'envirocar', hostname = 'localhost',
 #          username = 'postgres',  password = 'postgres')
 
-sde = FileGDB(os.path.join(basedir, 'envirocar_new.gdb'))
+sde = FileGDB(os.path.join(basedir, 'envirocar.gdb'))
 
 axis_model = AxisModel.for_dir(modeldir)
 
