@@ -15,7 +15,7 @@ if __name__ == '__main__':
             tracks = fgdb.feature_class('tracks')
             create_tracks(measurements, tracks)
             create_stop_table(measurements, stops)
-            calculate_statistics(fgdb)
+            calculate_statistics(axis_model, fgdb)
             find_passages(fgdb, axis_model)
         finally:
             stops.delete_if_exists()

@@ -573,7 +573,7 @@ class TrackMatcher(object):
                     writer.writerow(convert_row(row))
 
 class Stop(object):
-    SAMPLING_RATE = timedelta(seconds=5)
+    SAMPLING_RATE = timedelta(seconds=1)
 
     def __init__(self, axis, segment, track, start, stop, complete):
         self.track = track
@@ -843,7 +843,7 @@ def create_tracks(in_fc, out_fc):
             for polyline in _create_polylines(rows):
                 insert.insertRow(polyline)
 
-def calculate_statistics(fgdb):
+def calculate_statistics(model, fgdb):
     tracks_view = fgdb.feature_class('tracks').view()
     stops_view = fgdb.table('stops').view()
     measurement_view = fgdb.feature_class('measurements').view()
@@ -936,8 +936,53 @@ def calculate_statistics(fgdb):
         def get_duration(start, end):
             return (parse(end)-parse(start)).total_seconds()*1000
         """)
+
         tmp_table.add_field('duration', 'LONG')
         tmp_table.calculate_field('duration', 'get_duration(!MIN_time!, !MAX_time!)', code_block=code_block)
+
+        def get_length_of_track_on_segment(track, min_time, max_time):
+            min_point = get_point(track, min_time)
+            max_point = get_point(track, max_time)
+            array = Array([min_point.firstPoint, max_point.firstPoint])
+            polyline = Polyline(array, min_point.spatialReference)
+            return polyline.getLength('GEODESIC', 'METERS')
+
+        def get_segment_length(axis, segment):
+            where_clause = SQL.and_((SQL.eq_('Achsen_ID', SQL.quote_(axis)), SQL.eq_('segment_id', segment)))
+            with model.segments.search(['length'], where_clause=where_clause) as rows:
+                for row in rows: return row[0]
+            return None
+
+        def get_point(track, time):
+
+            min_time = time.replace(microsecond=0) - timedelta(seconds=1)
+            max_time = time.replace(microsecond=0) + timedelta(seconds=1)
+
+            where_clause = SQL.and_((
+                SQL.eq_('track', SQL.quote_(track)),
+                SQL.is_between_('time', (
+                    'date {}'.format(SQL.quote_(datetime.strftime(min_time, '%Y-%m-%d %H:%M:%S'))),
+                    'date {}'.format(SQL.quote_(datetime.strftime(max_time, '%Y-%m-%d %H:%M:%S')))))))
+
+            with measurement_view.search(['SHAPE@', 'time'], where_clause=where_clause) as rows:
+                for row in rows:
+                    if row[1] == time:
+                        return row[0]
+            return None
+
+
+        with tmp_table.update(['axis', 'segment', 'track', 'MIN_time', 'MAX_time', 'duration']) as rows:
+            for row in rows:
+                axis, segment, track, min_time, max_time, duration = row
+                tlength = get_length_of_track_on_segment(track, min_time, max_time)
+                slength = get_segment_length(axis, segment)
+                if tlength > 0:
+                    factor = slength/tlength
+                    log.debug('travel_time stretching factor: %f', factor)
+                    row[5] = row[5] * factor
+                    rows.updateRow(row)
+                else:
+                    log.debug('can not scale travel time, length is zero')
 
         tmp_table_view = tmp_table.view()
         # accomodate for single measurement tracks
