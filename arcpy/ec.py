@@ -979,9 +979,9 @@ def calculate_statistics(model, fgdb):
         tmp_table.add_field('duration', 'LONG')
         tmp_table.calculate_field('duration', 'get_duration(!MIN_time!, !MAX_time!)', code_block=code_block)
 
-        def get_length_of_track_on_segment(track, min_time, max_time):
-            min_point = get_point(track, min_time)
-            max_point = get_point(track, max_time)
+        def get_length_of_track_on_segment(track, axis, min_time, max_time):
+            min_point = get_point(track, axis, min_time)
+            max_point = get_point(track, axis, max_time)
             array = Array([min_point.firstPoint, max_point.firstPoint])
             polyline = Polyline(array, min_point.spatialReference)
             return polyline.getLength('GEODESIC', 'METERS')
@@ -989,7 +989,8 @@ def calculate_statistics(model, fgdb):
         def get_segment_length(axis, segment):
             where_clause = SQL.and_((SQL.eq_('Achsen_ID', SQL.quote_(axis)), SQL.eq_('segment_id', segment)))
             with model.segments.search(['length'], where_clause=where_clause) as rows:
-                for row in rows: return row[0]
+                for row in rows:
+                    return row[0]
             return None
 
         def get_point(track, axis, time):
@@ -998,7 +999,7 @@ def calculate_statistics(model, fgdb):
             max_time = time.replace(microsecond=0) + timedelta(seconds=1)
 
             where_clause = SQL.and_((
-                SQL.eq_('axis', SQL.quote(axis)),
+                SQL.eq_('axis', SQL.quote_(axis)),
                 SQL.eq_('track', SQL.quote_(track)),
                 SQL.is_between_('time', (
                     'date {}'.format(SQL.quote_(datetime.strftime(min_time, '%Y-%m-%d %H:%M:%S'))),
