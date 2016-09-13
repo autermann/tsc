@@ -9,8 +9,8 @@ log = logging.getLogger(__name__)
 
 def debug(command, param):
     pass
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug('%s%s', command, str(param))
+    #if log.isEnabledFor(logging.DEBUG):
+        #log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta
@@ -204,9 +204,14 @@ class ArcPyEntityBase(object):
         debug('arcpy.management.AddIndex', (self.id, field_name, field_name + '_idx'))
         self.add_index(field_name, field_name + '_idx')
 
-    def add_index(self, fields, index_name):
-        debug('arcpy.management.AddIndex', (self.id, fields, index_name))
-        arcpy.management.AddIndex(self.id, fields=fields, index_name=index_name)
+    def add_index(self, fields, index_name, unique=False, ascending=False):
+        unique = 'UNIQUE' if unique else 'NON_UNIQUE'
+        ascending = 'ASCENDING' if ascending else 'NON_ASCENDING'
+        debug('arcpy.management.AddIndex', (self.id, fields, index_name, unique, ascending))
+        arcpy.management.AddIndex(self.id, fields=fields, index_name=index_name, unique=unique, ascending=ascending)
+
+    def list_indexes(self, wild_card=None):
+        return arcpy.ListIndexes(self.id, wild_card=wild_card)
 
     def get_distinct_values(self, attribute):
         with self.search((attribute), sql_clause=('DISTINCT', None)) as rows:
@@ -319,6 +324,11 @@ class ArcPyEntityView(ArcPyEntityBase):
         self._select_by_attribute('CLEAR_SELECTION')
 
 class SpatialArcPyEntityBase(ArcPyEntityBase):
+
+    @property
+    def shape_field_name(self):
+         eturn self.describe().shapeFieldName
+
     def buffer(self, out_feature_class, buffer_distance_or_field, line_side='FULL', line_end_type='ROUND', dissolve_option='NONE', dissolve_field=None, method='PLANAR'):
         try:
             out_feature_class = out_feature_class.id
