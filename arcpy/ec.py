@@ -887,6 +887,43 @@ def calculate_statistics(model, fgdb):
     stops_view = fgdb.table('stops').view()
     measurement_view = fgdb.feature_class('measurements').view()
 
+    def create_mean_speed(postfix):
+        tmpfc = fgdb.feature_class('harmonic_mean_speed_' + postfix + '_tmp')
+
+        try:
+
+            # calculate the inverse speed
+            measurement_view.to_feature_class(tmpfc)
+            tmpfc.add_field('inverse_speed', 'DOUBLE')
+            tmpfc.calculate_field('inverse_speed', '1/!speed!')
+
+            out_table = fgdb.table('speed_by_axis_' + postfix)
+            tmpfc.statistics(
+                out_table=out_table,
+                statistics_fields=[('inverse_speed', 'SUM'), ('speed', 'MEAN')],
+                case_field=['axis'])
+
+            out_table.rename_field('FREQUENCY', 'num_observations')
+            out_table.rename_field('MEAN_speed', 'arithmetic_mean_speed')
+            out_table.add_field('harmonic_mean_speed', 'DOUBLE')
+            out_table.calculate_field('harmonic_mean_speed', '!num_observations!/!SUM_inverse_speed!')
+            out_table.delete_field('SUM_inverse_speed')
+
+
+            out_table = fgdb.table('speed_by_axis_segment_' + postfix)
+            tmpfc.statistics(
+                out_table=out_table,
+                statistics_fields=[('inverse_speed', 'SUM'), ('speed', 'MEAN')],
+                case_field=['axis', 'segment'])
+
+            out_table.rename_field('FREQUENCY', 'num_observations')
+            out_table.rename_field('MEAN_speed', 'arithmetic_mean_speed')
+            out_table.add_field('harmonic_mean_speed', 'DOUBLE')
+            out_table.calculate_field('harmonic_mean_speed', '!num_observations!/!SUM_inverse_speed!')
+            out_table.delete_field('SUM_inverse_speed')
+        finally:
+            tmpfc.delete_if_exists()
+
     def create_co2_consumption(postfix):
         # consumption_by_axis_
         out_table = fgdb.table('consumption_by_axis_' + postfix)
@@ -1045,6 +1082,9 @@ def calculate_statistics(model, fgdb):
         measurement_view.clear_selection()
         create_co2_consumption('all')
         create_travel_time_segment('all')
+        # eliminate null and 0 values
+        measurement_view.new_selection(SQL.and_((SQL.neq_('speed', 0), SQL.is_not_null_('speed'))))
+        create_mean_speed('all')
 
         for time_of_week in ['workday', 'weekend']:
           for time_of_day in ['morning', 'evening', 'noon', 'night']:
@@ -1052,6 +1092,8 @@ def calculate_statistics(model, fgdb):
             measurement_view.new_selection(SQL.eq_(selector, 1))
             create_co2_consumption(selector)
             create_travel_time_segment(selector)
+            measurement_view.subset_selection(SQL.and_((SQL.neq_('speed', 0), SQL.is_not_null_('speed'))))
+            create_mean_speed(selector)
 
         stops_view.clear_selection()
         create_stops('all')
