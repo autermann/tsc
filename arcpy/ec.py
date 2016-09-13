@@ -11,6 +11,11 @@ import logging
 
 MAX_TIME_SPAN_SAME_NODE = timedelta(seconds=10)
 MAX_TIME_SPAN_CONSECUTIVE_NODES = timedelta(seconds=60)
+NUM_CONSECUTIVE_MATCHES = 4
+NODE_BUFFER_SIZE = 20
+NODE_TYPE_START = 1
+NODE_TYPE_LSA = 2
+NODE_TYPE_INFLUENCE = 3
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +25,6 @@ class TrackMatchingResult(object):
     def __init__(self, track, matches, node_count, num_consecutive_results):
         self.track = track
         self.axis_node_count = node_count
-        self.num_consecutive_results = num_consecutive_results
 
         matches = self.create_node_matches(matches)
         matches = self.filter_matches(matches)
@@ -45,7 +49,7 @@ class TrackMatchingResult(object):
         minumum required length.
         """
         for match in matches:
-            if len(match) >= self.num_consecutive_results:
+            if len(match) >= NUM_CONSECUTIVE_MATCHES:
                 yield match
 
 
@@ -220,11 +224,10 @@ class NodeMatchingResult(object):
 
 def create_axis_subsets(measurements_fc, trajectories_fc, tracks_fc, axis_model,
                         out_dir = None, out_name = 'outputs.gdb', axes = None,
-                        time = None, node_tolerance = 30):
+                        time = None):
     matcher = TrackMatcher(measurements_fc=measurements_fc,
         trajectories_fc=trajectories_fc, tracks_fc=tracks_fc, axes=axes,
-        time=time, out_dir=out_dir, out_name=out_name,
-        node_tolerance=node_tolerance, axis_model=axis_model)
+        time=time, out_dir=out_dir, out_name=out_name, axis_model=axis_model)
     matcher.analyze()
 
 class AxisModel(object):
@@ -260,9 +263,6 @@ def get_all_axes(axis_model):
         return sorted(axes)
 
 class TrackMatcher(object):
-    TYPE_START = 1
-    TYPE_LSA = 2
-    TYPE_INFLUENCE = 3
 
     def __init__(self,
                  measurements_fc,
@@ -272,8 +272,7 @@ class TrackMatcher(object):
                  out_dir = None,
                  out_name = 'outputs.gdb',
                  axes = None,
-                 time = None,
-                 node_tolerance = 30):
+                 time = None):
 
         self.out_dir = out_dir if out_dir is not None else env.workspace
         if not os.path.exists(self.out_dir):
@@ -297,7 +296,6 @@ class TrackMatcher(object):
 
         self.axis_ids = axes
         self.time = time
-        self.node_tolerance = node_tolerance
 
     def analyze(self):
         if self.axis_ids is None:
@@ -337,10 +335,9 @@ class TrackMatcher(object):
             #self.axis_mbr_fc.delete_if_exists()
 
     def create_node_buffer_feature_class(self):
-        log.info('Creating node buffers with %s meters tolerance', self.node_tolerance)
-        return self.node_fc.buffer(
-            self.fgdb.feature_class('nodes_buffer'),
-            str(self.node_tolerance) + ' Meters')
+        log.info('Creating node buffers with %s meters tolerance', NODE_BUFFER_SIZE)
+        return self.node_fc.buffer(self.fgdb.feature_class('nodes_buffer'),
+                                   str(NODE_BUFFER_SIZE) + ' Meters')
 
     def create_ec_subset_for_axis(self, axis):
         matches = self.get_track_matches_for_axis(axis)
@@ -364,6 +361,7 @@ class TrackMatcher(object):
             nfc.add_field(fname, ftype)
 
         nfc.add_field('complete_axis_match', 'SHORT')
+
         csv_path = os.path.join(self.out_dir, 'ec_subset_for_axis_{}.csv'.format(axis))
 
         if not matches:
@@ -379,6 +377,7 @@ class TrackMatcher(object):
             fnames =  ['SHAPE@XY'] + [fname for fname, ftype in fields]
             # the index of the track field
             track_idx = fnames.index('track')
+
             insertNames = [name if name != 'objectid' else 'mongoid' for name in fnames] + ['complete_axis_match']
 
             with nfc.insert(insertNames) as insert:
@@ -417,6 +416,7 @@ class TrackMatcher(object):
             fc.near(extracted_axis)
             fc.add_field('segment', 'LONG')
             fc.add_field('axis', 'TEXT')
+
             ec_subset_fl = fc.view()
             extracted_axis_fl = extracted_axis.view()
             try:
@@ -464,19 +464,19 @@ class TrackMatcher(object):
             has_start = False
             with self.axis_model.start_nodes.search(['Achsen_ID', 'SHAPE@']) as sc:
                 for row in sc:
-                    ic.insertRow((row[0], TrackMatcher.TYPE_START, 0, row[1]))
+                    ic.insertRow((row[0], NODE_TYPE_START, 0, row[1]))
 
             # the start nodes of ranges of influence
             with self.axis_model.influence_nodes.search(['Achsen_ID', 'SHAPE@', 'N_Rang']) as sc:
                 for row in sc:
-                    ic.insertRow((row[0], TrackMatcher.TYPE_INFLUENCE, 2 * (row[2] - 1) + 1, row[1]))
+                    ic.insertRow((row[0], NODE_TYPE_INFLUENCE, 2 * (row[2] - 1) + 1, row[1]))
             # the traffic lights
             with self.axis_model.lsa_nodes.search(['Achsen_ID', 'SHAPE@', 'K_Rang']) as sc:
                 for row in sc:
-                    ic.insertRow((row[0], TrackMatcher.TYPE_LSA, 2 * (row[2] - 1) + 2, row[1]))
+                    ic.insertRow((row[0], NODE_TYPE_LSA, 2 * (row[2] - 1) + 2, row[1]))
         return fc
 
-    def get_track_matches(self, track, axis, num_consecutive_results = 4):
+    def get_track_matches(self, track, axis):
         log.info('checking axis %s for track %s', axis, track)
         node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
@@ -524,9 +524,7 @@ class TrackMatcher(object):
     def get_track_matches_for_axis(self, axis):
         tracks = self.get_tracks_for_nodes_buffer(axis)
         log.info('%s tracks found for nodes of axis %s: %s', len(tracks), axis, tracks)
-
-
-        return [x for x in [self.get_track_matches(track, axis, 4) for track in tracks] if len(x) > 0]
+        return [x for x in [self.get_track_matches(track, axis) for track in tracks] if len(x) > 0]
 
     def create_csv_export_fields(self):
         def to_cest(x): return x + timedelta(hours = 2)
