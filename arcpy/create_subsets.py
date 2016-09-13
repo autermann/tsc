@@ -14,5 +14,4 @@ if __name__ == '__main__':
         time = None,
         out_dir = workspace,
         out_name = 'outputs.gdb',
-        node_tolerance = 20,
         axis_model = axis_model)
