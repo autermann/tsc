@@ -2,7 +2,9 @@ import os
 import arcpy
 import csv
 import textwrap
-from arcpy import SpatialReference, Array, Point, Polyline, FieldMappings, env
+import arcpy
+from arcpy import SpatialReference, Array, FieldMappings, env
+from arcpy import Point, Polyline, Multipoint, Geometry
 from ooarcpy import FeatureClass, FileGDB
 from itertools import izip, islice, tee, groupby
 from datetime import timedelta, datetime
@@ -21,10 +23,12 @@ log = logging.getLogger(__name__)
 
 class TrackMatchingResult(object):
 
-
-    def __init__(self, track, matches, node_count, num_consecutive_results):
+    def __init__(self, axis, track, matches, node_count, measurements, model):
         self.track = track
+        self.axis = axis
         self.axis_node_count = node_count
+        self.measurements = measurements
+        self.model = model
 
         matches = self.create_node_matches(matches)
         matches = self.filter_matches(matches)
@@ -52,7 +56,6 @@ class TrackMatchingResult(object):
             if len(match) >= NUM_CONSECUTIVE_MATCHES:
                 yield match
 
-
     def remove_edge_matches(self, matches):
         """
         Removes the first and/or last node match if these nodes are not the
@@ -73,6 +76,35 @@ class TrackMatchingResult(object):
                 max_time=max_time, min_idx=idx,
                 axis_node_count=self.axis_node_count)
 
+    def get_segment_bounding_box_area(self, rank):
+        where_clause = SQL.and_((SQL.eq_('Achsen_ID', SQL.quote_(self.axis)),
+                                 SQL.eq_('rank', rank)))
+        with self.model.segments.search('bbox_area', where_clause) as rows:
+            for row in rows:
+                return row[0]
+        raise Exception('No bbox area for axis segment no. %s of axis %s' % (rank, self.axis))
+
+    def get_measurement_bbox_area(self, time):
+        where_clause = SQL.and_((
+            SQL.eq_('track', self.track),
+            SQL.is_between_('time', ['date {}'.format(SQL.quote_(time.replace(microsecond=0))) for time in time])
+            ))
+
+        points = [Point(*row[0]) for row in self.measurements.search('SHAPE@XY', where_clause)]
+        if not len(points):
+            return 0
+        multipoint = Multipoint(Array(points), SpatialReference(4326))
+        buffered = None
+        try:
+            buffered = arcpy.analysis.Buffer(multipoint, Geometry(), '20 Meters')[0]
+        except:
+            log.debug('Can not buffer geometry: %s', multipoint.JSON)
+            # FIXME
+            return 0
+
+        bbox = arcpy.management.MinimumBoundingGeometry(buffered, Geometry(), 'ENVELOPE')[0]
+        return bbox.getArea('GEODESIC', 'SQUAREKILOMETERS')
+
     def filter_matches(self, matches):
         """
         Removes matches that are going in the wrong direction and merges matches
@@ -88,9 +120,18 @@ class TrackMatchingResult(object):
             # same node, but a too big time difference
             too_big_time_difference = a.idx == b.idx and (a.max_time - b.min_time) < MAX_TIME_SPAN_SAME_NODE
             # TODO consecutive nodes, but a too big time difference
-            #too_big_time_difference |= consecutive and (a.max_time - b.min_time) < MAX_TIME_SPAN_CONSECUTIVE_NODES
 
-            if not consecutive or too_big_time_difference:
+            non_matching_bboxes = False
+
+            if consecutive and not too_big_time_difference:
+                segment_bbox_area = self.get_segment_bounding_box_area(a.max_idx);
+                measurement_bbox_area = self.get_measurement_bbox_area((a.max_time, b.min_time))
+                log.debug('segment_bbox_area: %s, measurement_bbox_area: %s', segment_bbox_area, measurement_bbox_area)
+
+                if measurement_bbox_area > 2 * segment_bbox_area:
+                    non_matching_bboxes = True
+
+            if not consecutive or too_big_time_difference or non_matching_bboxes:
                 if current is not None:
                     yield current
                     current = None
@@ -219,7 +260,7 @@ class NodeMatchingResult(object):
             max_time=max(self.max_time, other.max_time),
             min_idx=min(self.min_idx, other.min_idx),
             max_idx=max(self.max_idx, other.max_idx),
-            details = self._merge_details(self.details, other.details),
+            details=self._merge_details(self.details, other.details),
             axis_node_count=self.axis_node_count)
 
 def create_axis_subsets(measurements_fc, trajectories_fc, tracks_fc, axis_model,
@@ -447,7 +488,6 @@ class TrackMatcher(object):
         with self.tracks_fl.search(['track'], sql_clause = ('DISTINCT', None)) as rows:
             return sorted(set(row[0] for row in rows))
 
-
     def create_node_feature_class(self):
         # create a the new feature class
 
@@ -481,7 +521,7 @@ class TrackMatcher(object):
         node_count = self.get_nodes_count(axis)
         def get_node_matches(node): return self.get_node_matches(track, axis, node)
         node_matches = [match for node in xrange(0, node_count) for match in get_node_matches(node)]
-        result = TrackMatchingResult(track, node_matches, node_count, num_consecutive_results)
+        result = TrackMatchingResult(axis, track, node_matches, node_count, self.measurements_fc, self.axis_model)
         log.info('result for axis %s for track %s: %s', axis, track, result)
         return result
 
