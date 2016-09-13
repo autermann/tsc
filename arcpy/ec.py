@@ -324,6 +324,7 @@ class TrackMatcher(object):
             target = self.fgdb.feature_class('measurements')
             subsets = [self.create_ec_subset_for_axis(axis) for axis in self.axis_ids]
             merge_feature_classes(subsets, target)
+            add_time_segment_fields(target)
         finally:
             self.node_buffer_fl.delete()
             #self.axis_mbr_fl.delete()
@@ -1451,3 +1452,60 @@ def find_passages(fgdb, axis_model):
         stops.delete()
         axis_segment.delete_if_exists()
         axis.delete_if_exists()
+
+def add_time_segment_fields(feature_class):
+    code_block = textwrap.dedent("""\
+    from datetime import datetime
+
+    def parse(s):
+        format_string = None
+        if len(s) > 19:
+            format_string = '%d.%m.%Y %H:%M:%S.%f'
+        elif len(s) > 10:
+            format_string = '%d.%m.%Y %H:%M:%S'
+        else:
+            format_string = '%d.%m.%Y'
+        return datetime.strptime(s, format_string)
+
+    def workday_is_in_range(time, min_hour, max_hour):
+        time = parse(time)
+        if min_hour <= max_hour:
+            return (time.weekday() < 5 and min_hour <= time.hour < max_hour)
+        else:
+            return (time.weekday() < 5 and (min_hour <= time.hour or time.hour < max_hour))
+
+    def weekend_is_in_range(time, min_hour, max_hour):
+        time = parse(time)
+        if min_hour <= max_hour:
+            return (time.weekday() >= 5 and min_hour <= time.hour < max_hour)
+        else:
+            return (time.weekday() >= 5 and (min_hour <= time.hour or time.hour < max_hour))
+    """)
+
+
+    for time_of_week in ['workday', 'weekend']:
+        for time_of_day in ['morning', 'evening', 'noon', 'night']:
+            selector = '{}_{}'.format(time_of_week, time_of_day)
+            feature_class.add_field(selector, 'SHORT')
+
+    feature_class.calculate_field('workday_morning', 'workday_is_in_range(!time!,  4, 8)', code_block=code_block)
+    feature_class.calculate_field('workday_noon',    'workday_is_in_range(!time!, 10, 12)', code_block=code_block)
+    feature_class.calculate_field('workday_evening', 'workday_is_in_range(!time!, 13, 17)', code_block=code_block)
+    feature_class.calculate_field('workday_night',   'workday_is_in_range(!time!, 19, 4)', code_block=code_block)
+
+    feature_class.calculate_field('weekend_morning', 'weekend_is_in_range(!time!,  4, 8)', code_block=code_block)
+    feature_class.calculate_field('weekend_noon',    'weekend_is_in_range(!time!, 10, 12)', code_block=code_block)
+    feature_class.calculate_field('weekend_evening', 'weekend_is_in_range(!time!, 13, 17)', code_block=code_block)
+    feature_class.calculate_field('weekend_night',   'weekend_is_in_range(!time!, 19, 4)', code_block=code_block)
+
+    feature_class.add_index(['segment'], 'segment_idx')
+    feature_class.add_index(['axis'], 'axis_idx')
+    feature_class.add_index(['track'], 'track_idx')
+    feature_class.add_index(['time'], 'time_idx')
+    feature_class.add_index(['complete_axis_match'], 'complete_axis_match_idx')
+
+    for time_of_week in ['workday', 'weekend']:
+        for time_of_day in ['morning', 'evening', 'noon', 'night']:
+            selector = '{}_{}'.format(time_of_week, time_of_day)
+            feature_class.add_index([selector], '{}_idx'.format(selector))
+
