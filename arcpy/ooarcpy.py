@@ -327,7 +327,7 @@ class SpatialArcPyEntityBase(ArcPyEntityBase):
 
     @property
     def shape_field_name(self):
-         eturn self.describe().shapeFieldName
+        return self.describe().shapeFieldName
 
     def buffer(self, out_feature_class, buffer_distance_or_field, line_side='FULL', line_end_type='ROUND', dissolve_option='NONE', dissolve_field=None, method='PLANAR'):
         try:
