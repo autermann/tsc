@@ -5,7 +5,7 @@ tracks_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.trac
 measurements_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.measurements'
 trajectories_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.trajectories'
 
-out_fgdb=r'C:\tsc\envirocar_new.gdb'
+out_fgdb=r'C:\tsc\envirocar.gdb'
 
 tracks_out = os.path.join(out_fgdb, 'tracks')
 measurements_out = os.path.join(out_fgdb, 'measurements')
