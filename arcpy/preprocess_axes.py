@@ -1,58 +1,85 @@
 import textwrap
-from config import axis_model, setenv
+from config import axis_model as model, setenv, fgdb
 from arcpy import Polyline, Array, PointGeometry
+from utils import SQL
 
-def add_rank_field(model, field_name):
-    if self.field_exist(field_name):
-        self.delete_field(field_name)
-    self.add_field(field_name, 'LONG')
+SEGMENT_BUFFER_SIZE = 20
 
+def add_segment_bbox_area():
+    model.segments.add_field('bbox_area', 'DOUBLE')
 
-
-    code_block = textwrap.dedent("""\
-    def calculate_rang(k, n):
-        if k is None: return -1
-        elif n is None: return 2 * k - 1
-        else: return 2 * k
-    """)
-
-
-    fl = model.segments.view('axes')
+    buffer_distance = '{0} Meters'.format(str(SEGMENT_BUFFER_SIZE))
+    segments_buffered = fgdb.feature_class('segments_buffered')
+    segments_bbox = fgdb.feature_class('segments_bbox')
+    segments = model.segments.view()
     try:
-        fl.join('LSA', model.lsa_nodes, 'LSA')
-        fl.join('N_Einfluss', model.influence_nodes, 'N_Einfluss')
-        expression = 'calculate_rang(!K_LSA.K_Rang!, !N_Einflussbereich.N_Rang!)'
-        fl.calculate_field(field_name, expression, code_block=code_block)
+        segments_buffered.delete_if_exists()
+        segments_bbox.delete_if_exists()
+
+        segments.buffer(segments_buffered, buffer_distance)
+        segments_buffered.minimum_bounding_geometry(segments_bbox)
+
+        segments_bbox.add_field('area', 'DOUBLE')
+        segments_bbox.calculate_field('area', '!shape.geodesicArea@SQUAREKILOMETERS!')
+
+        segments.add_join('segment_id', segments_bbox, 'segment_id')
+
+
+        segments.calculate_field('bbox_area', '!segments_bbox.area!')
     finally:
-        fl.delete()
+        segments_buffered.delete_if_exists()
+        segments.delete_if_exists()
+        segments_bbox.delete_if_exists()
 
 
-def add_length_fields(model):
-    fc = model.segments
-    fc.add_field('length', 'DOUBLE')
-    fc.add_field('blength', 'DOUBLE')
-    fc.add_field('dlength', 'DOUBLE')
-    fc.add_field('duration', 'DOUBLE')
-    fc.add_field('bduration', 'DOUBLE')
-    fc.add_field('dduration', 'DOUBLE')
+def add_segment_rank():
+    model.segments.add_field('rank', 'LONG')
 
+    with model.influence_nodes.search(['Achsen_ID', 'N_Rang', 'N_Einfluss']) as sc:
+        for axis, rank, name in sc:
+            lsa = 'K' + name[1:-1]
+            rank = 2 * (rank - 1)
+            where_clause = SQL.and_((
+                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
+                    SQL.eq_('LSA', SQL.quote_(lsa)),
+                    SQL.eq_('Segmenttyp', 0)))
+            with model.segments.update(['Segmenttyp', 'rank'], where_clause=where_clause) as rows:
+                for row in rows:
+                    row[1] = rank
+                    rows.updateRow(row)
 
-    with fc.update(['SHAPE@', 'length', 'blength', 'dlength', 'duration', 'bduration', 'dduration']) as rows:
+    with model.lsa_nodes.search(['Achsen_ID', 'K_Rang', 'LSA']) as sc:
+        for axis, rank, name in sc:
+            lsa = name[:-1]
+            rank = 2 * (rank - 1) + 1
+            where_clause = SQL.and_((
+                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
+                    SQL.eq_('LSA', SQL.quote_(lsa)),
+                    SQL.eq_('Segmenttyp', 1)))
+            with model.segments.update(['rank'], where_clause=where_clause) as rows:
+                for row in rows:
+                    row[0] = rank
+                    rows.updateRow(row)
+
+def add_length_and_duration():
+    model.segments.add_field('length', 'DOUBLE')
+    model.segments.add_field('duration', 'DOUBLE')
+
+    with model.segments.update(['SHAPE@', 'length', 'duration' ]) as rows:
         for row in rows:
             shape = row[0]
             array = Array([shape.firstPoint, shape.lastPoint])
             polyline = Polyline(array, shape.spatialReference)
             row[1] = shape.getLength('GEODESIC', 'METERS')
-            row[2] = polyline.getLength('GEODESIC', 'METERS')
-            row[3] = abs(row[1]-row[2])
-            row[4] = row[1] / (50/3.6)
-            row[5] = row[2] / (50/3.6)
-            row[6] = abs(row[4]-row[5])
-
+            row[2] = row[1] / (50/3.6)
             rows.updateRow(row)
+
 
 if __name__ == '__main__':
     setenv()
-    #axis_model.segments.add_id_field('segment_id')
-    #add_rank_field(axis_model, 'S_Rang')
-    add_length_fields(axis_model)
+    fgdb.create_if_not_exists()
+    add_segment_bbox_area()
+    add_length_and_duration()
+    add_segment_rank()
+
+
