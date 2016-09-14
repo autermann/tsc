@@ -963,21 +963,109 @@ def calculate_statistics(model, fgdb):
     def create_stops(postfix):
         # stops_by_axis_
         out_table = fgdb.table('stops_by_axis_' + postfix)
-        stops_view.statistics(
-            out_table=out_table,
-            statistics_fields=[('duration', 'MEAN')],
-            case_field=['axis'])
-        out_table.rename_field('FREQUENCY', 'stops')
-        out_table.rename_field('MEAN_duration', 'duration')
+        tmp_table1 = fgdb.table('stops_by_axis_' + postfix + '_tmp1')
+        tmp_table2 = fgdb.table('stops_by_axis_' + postfix + '_tmp2')
+        tmp_table1_view = None
+        out_table_view = None
+        try:
+            # the number of stops per track per axis
+            stops_view.statistics(
+                out_table=tmp_table1,
+                statistics_fields=[('track', 'COUNT')],
+                case_field=['axis', 'track'])
+            tmp_table1.rename_field('COUNT_track', 'stops')
+            tmp_table1.delete_field('FREQUENCY')
+
+            # remove single stops
+            tmp_table1_view = tmp_table1.view()
+            tmp_table1_view.new_selection('stops <= 1')
+            if tmp_table1_view.get_selection_count() > 0:
+                tmp_table1_view.delete_rows()
+                tmp_table1_view.clear_selection()
+
+
+
+            tmp_table1_view.statistics(
+                out_table=tmp_table2,
+                statistics_fields=[('stops', 'SUM')],
+                case_field=['axis'])
+
+            tmp_table2.rename_field('SUM_stops', 'multistops')
+            tmp_table2.delete_field('FREQUENCY')
+            # the number of stops (regardless of whether multiple or not)
+            stops_view.statistics(
+                out_table=out_table,
+                statistics_fields=[('duration', 'MEAN')],
+                case_field=['axis'])
+
+            out_table.rename_field('FREQUENCY', 'stops')
+            out_table.rename_field('MEAN_duration', 'duration')
+
+            # add the number of multiple stops
+            out_table.add_field('multistops', 'LONG')
+            out_table_view = out_table.view()
+
+            out_table_view.add_join('axis', tmp_table2, 'axis')
+            out_table_view.calculate_field('multistops', '!{}.multistops!'.format(tmp_table2.name))
+        finally:
+            if tmp_table1 is not None: tmp_table1.delete_if_exists()
+            if tmp_table2 is not None: tmp_table2.delete_if_exists()
+            if tmp_table1_view is not None: tmp_table1_view.delete_if_exists()
+            if out_table_view is not None: out_table_view.delete_if_exists()
+
+
+
+
         # stops_by_axis_segment_
         out_table = fgdb.table('stops_by_axis_segment_' + postfix)
-        stops_view.statistics(
-            out_table=out_table,
-            statistics_fields=[('duration', 'MEAN')],
-            case_field=['axis','segment'])
-        out_table.rename_field('FREQUENCY', 'stops')
-        out_table.rename_field('MEAN_duration', 'duration')
-        out_table.add_join_field(['axis', 'segment'])
+        tmp_table1 = fgdb.table('stops_by_axis_segment_' + postfix + '_tmp1')
+        tmp_table2 = fgdb.table('stops_by_axis_segment_' + postfix + '_tmp2')
+        try:
+
+            # the number of stops per track per axis per segment
+            stops_view.statistics(
+                out_table=tmp_table1,
+                statistics_fields=[('track', 'COUNT')],
+                case_field=['axis', 'segment' 'track'])
+            tmp_table1.rename_field('COUNT_track', 'stops')
+            tmp_table1.delete_field('FREQUENCY')
+
+            # remove single stops
+            tmp_table1_view = tmp_table1.view()
+            tmp_table1_view.new_selection('stops <= 1')
+            if tmp_table1_view.get_selection_count() > 0:
+                tmp_table1_view.delete_rows()
+                tmp_table1_view.clear_selection()
+
+            tmp_table1_view.statistics(
+                out_table=tmp_table2,
+                statistics_fields=[('stops', 'SUM')],
+                case_field=['axis', 'segment'])
+
+            tmp_table2.rename_field('SUM_stops', 'multistops')
+            tmp_table2.delete_field('FREQUENCY')
+            tmp_table2.add_join_field(['axis', 'segment'])
+            # the number of stops (regardless of whether multiple or not)
+            stops_view.statistics(
+                out_table=out_table,
+                statistics_fields=[('duration', 'MEAN')],
+                case_field=['axis','segment'])
+            out_table.rename_field('FREQUENCY', 'stops')
+            out_table.rename_field('MEAN_duration', 'duration')
+            out_table.add_join_field(['axis', 'segment'])
+
+            # add the number of multiple stops
+            out_table.add_field('multistops', 'LONG')
+            out_table_view = out_table.view()
+
+            out_table_view.add_join('join_field', tmp_table2, 'join_field')
+            out_table_view.calculate_field('multistops', '!{}.multistops!'.format(tmp_table2.name))
+
+        finally:
+            if tmp_table1 is not None: tmp_table1.delete_if_exists()
+            if tmp_table2 is not None: tmp_table2.delete_if_exists()
+            if tmp_table1_view is not None: tmp_table1_view.delete_if_exists()
+            if out_table_view is not None: out_table_view.delete_if_exists()
 
     def create_travel_time_axis(postfix):
         # travel_time_by_axis_

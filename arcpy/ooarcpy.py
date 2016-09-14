@@ -322,6 +322,13 @@ class ArcPyEntityView(ArcPyEntityBase):
     def clear_selection(self):
         self._select_by_attribute('CLEAR_SELECTION')
 
+    def get_selection_count(self):
+        fidset = self.describe().FIDSet
+        if fidset:
+            return fidset.count(';')
+        else:
+            return 0
+
 class SpatialArcPyEntityBase(ArcPyEntityBase):
 
     @property
@@ -429,4 +436,7 @@ class TableView(ArcPyEntityView, TableLikeArcPyEntityBase):
     def create(self, source, name):
         debug('arcpy.management.MakeTableView', (source.id, name))
         arcpy.management.MakeTableView(source.id, name)
+    def delete_rows(self):
+        debug('arcpy.management.DeleteRows', (self.id,))
+        arcpy.management.DeleteRows(self.id)
 
