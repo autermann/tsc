@@ -1673,6 +1673,9 @@ def create_result_tables(fgdb, model):
                     with axis_table.update(fields_to_insert, where_clause=where_clause) as sink:
                         for sink_row in sink:
                             sink_row[:] = source_row[1:]
+                            sink.updateRow(sink_row)
+
+            table_by_axis.delete()
 
             table_by_axis_segment = fgdb.table('{}_by_axis_segment_{}'.format(table_type, classifier))
             log.debug('Sourcing %s', table_by_axis_segment.id)
@@ -1692,4 +1695,7 @@ def create_result_tables(fgdb, model):
                     with axis_segment_table.update(fields_to_insert, where_clause=where_clause) as sink:
                         for sink_row in sink:
                             sink_row[:] = source_row[2:]
+                            sink.updateRow(sink_row)
+
+            table_by_axis_segment.delete()
 
