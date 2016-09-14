@@ -11,8 +11,6 @@ if __name__ == '__main__':
     start = datetime(2016, 6, 6) - timedelta(hours=2)
     weeks = 4
 
-
-
     measurements = fgdb.feature_class('measurements').view()
 
 

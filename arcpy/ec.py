@@ -1056,7 +1056,7 @@ def calculate_statistics(model, fgdb):
                 slength = get_segment_length(axis, segment)
                 if tlength > 0:
                     factor = slength/tlength
-                    log.debug('travel_time stretching factor: %f', factor)
+                    #log.debug('travel_time stretching factor: %f', factor)
                     row[5] = row[5] * factor
                     rows.updateRow(row)
                 else:
@@ -1589,4 +1589,107 @@ def add_time_segment_fields(feature_class):
         for time_of_day in ['morning', 'evening', 'noon', 'night']:
             selector = '{}_{}'.format(time_of_week, time_of_day)
             feature_class.add_index([selector], '{}_idx'.format(selector))
+
+def create_result_tables(fgdb, model):
+    def get_axis_segments():
+        axis_segment = create_axis_segment_table(fgdb, model.segments)
+        axes = {}
+        try:
+            with axis_segment.search(['axis', 'segment']) as rows:
+                for axis, segment in rows:
+                    if axis in axes:
+                        axes[axis].append(segment)
+                    else:
+                        axes[axis] = [segment]
+        finally:
+            axis_segment.delete_if_exists()
+        return axes
+
+    def create_axis_result_table(axes):
+        table = fgdb.table('results_by_axis')
+        table.delete_if_exists()
+        table.create()
+        table.add_field('axis', 'TEXT')
+        table.add_index(['axis'], 'axis_idx', unique=True)
+        with table.insert(['axis']) as insert:
+            for axis in axes:
+                insert.insertRow([axis])
+        return table
+
+    def create_axis_segment_resut_table(axes):
+        table = fgdb.table('results_by_axis_segment')
+        table.delete_if_exists()
+        table.create()
+        table.add_field('axis', 'TEXT')
+        table.add_field('segment', 'LONG')
+        table.add_index(['axis', 'segment'], 'axis_segment_idx', unique=True)
+        with table.insert(['axis', 'segment']) as insert:
+            for axis, segments in axes.iteritems():
+                for segment in segments:
+                    insert.insertRow([axis, segment])
+        return table
+
+    def get_fields_to_copy(table):
+        fields_to_ignore = [table.oid_field_name, 'axis', 'segment', 'join_field']
+        return [(field.name, field.type) for field in table.list_fields() if field.name not in fields_to_ignore]
+
+    def get_fields_to_insert(table_type, classifier, fields_to_copy):
+        fields_to_insert = []
+        fields_to_rename = ['num_observations', 'num_tracks', 'duration']
+        for field_name, field_type in fields_to_copy:
+            new_name = '{}_{}'.format(field_name, classifier)
+            if field_name in fields_to_rename:
+                new_name = '{}_{}'.format(table_type, new_name)
+            fields_to_insert.append((new_name, field_type))
+        return fields_to_insert
+
+    axes = get_axis_segments()
+    axis_table = create_axis_result_table(axes)
+    axis_segment_table = create_axis_segment_resut_table(axes)
+
+
+
+    classifiers = ['all'] + ['{}_{}'.format(time_of_week, time_of_day) for time_of_week in ['workday', 'weekend'] for time_of_day in ['morning', 'evening', 'noon', 'night']]
+    table_types = [ 'passages', 'co2', 'consumption', 'travel_time', 'stops', 'speed']
+
+    for table_type in table_types:
+        for classifier in classifiers:
+            table_by_axis = fgdb.table('{}_by_axis_{}'.format(table_type, classifier))
+            log.debug('Sourcing %s', table_by_axis.id)
+
+            fields_to_copy = get_fields_to_copy(table_by_axis)
+            fields_to_insert = get_fields_to_insert(table_type, classifier, fields_to_copy)
+
+            for field_name, field_type in fields_to_insert:
+                axis_table.add_field(field_name, field_type)
+
+            fields_to_copy = ['axis'] + [field_name for field_name, field_type in fields_to_copy]
+
+            fields_to_insert = [field_name for field_name, field_type in fields_to_insert]
+
+            with table_by_axis.search(fields_to_copy) as source:
+                for source_row in source:
+                    where_clause = SQL.eq_('axis', SQL.quote_(source_row[0]))
+                    with axis_table.update(fields_to_insert, where_clause=where_clause) as sink:
+                        for sink_row in sink:
+                            sink_row[:] = source_row[1:]
+
+            table_by_axis_segment = fgdb.table('{}_by_axis_segment_{}'.format(table_type, classifier))
+            log.debug('Sourcing %s', table_by_axis_segment.id)
+
+            fields_to_copy = get_fields_to_copy(table_by_axis_segment)
+            fields_to_insert = get_fields_to_insert(table_type, classifier, fields_to_copy)
+
+            for field_name, field_type in fields_to_insert:
+                axis_segment_table.add_field(field_name, field_type)
+
+            fields_to_copy = ['axis', 'segment'] + [field_name for field_name, field_type in fields_to_copy]
+            fields_to_insert = [field_name for field_name, field_type in fields_to_insert]
+
+            with table_by_axis_segment.search(fields_to_copy) as source:
+                for source_row in source:
+                    where_clause = SQL.and_((SQL.eq_('axis', SQL.quote_(source_row[0])), SQL.eq_('segment', source_row[1])))
+                    with axis_segment_table.update(fields_to_insert, where_clause=where_clause) as sink:
+                        for sink_row in sink:
+                            sink_row[:] = source_row[2:]
 
