@@ -19,3 +19,5 @@ if __name__ == '__main__':
             find_passages(fgdb, axis_model)
         finally:
             stops.delete_if_exists()
+
+        create_result_tables(fgdb, axis_model)
