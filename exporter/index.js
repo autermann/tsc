@@ -17,8 +17,8 @@ var bbox = {
     51.39363622420581
   ],
   t: [
-    '2016-06-06T00:00:00.000Z',
-    '2016-07-03T23:59:59.999Z'
+    '2016-06-06T00:00:00.000+02:00',
+    '2016-10-02T23:59:59.999+02:00'
   ]
 };
 
@@ -42,3 +42,11 @@ copy(mongodb, postgres, {
     }
   }
 }, console.error.bind(console));
+
+/*
+var tracks = db.measurements.aggregate([
+  { $match: query },
+  { $group: {_id:1, tracks: {$addToSet: "$track" } } }
+]).toArray()[0].tracks.map(function(x) { return x.$id; });
+var track_count = tracks.length;
+*/

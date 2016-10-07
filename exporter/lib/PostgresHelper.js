@@ -29,6 +29,11 @@ function PostgresHelper(options) {
     array.push({ name: phen + '_unit', type: 'char(16)' });
     return array;
   }, []);
+  this.columnNames = this.phenomenonsAndUnits.reduce(function(array, phen) {
+    array.push(phen.name);
+    return array;
+  }, []);
+
   this.columnSeperator = options.columnSeperator || COLUMN_SEPERATOR;
   this.recordSeperator = options.recordSeperator || RECORD_SEPERATOR;
   this.nullValue = options.nullValue || NULL_VALUE;
@@ -57,8 +62,8 @@ PostgresHelper.prototype.writeToStream = function(stream, measurement) {
   stream.write(this.columnSeperator);
   stream.write(measurement.track);
 
-  this.phenomenonsAndUnits.forEach(function(phenomenon) {
-    var value = measurement.values[phenomenon.name];
+  this.columnNames.forEach(function(name) {
+    var value = measurement.values[name];
     stream.write(this.columnSeperator);
     if (value === undefined || value === null) {
       stream.write(this.nullValue);
