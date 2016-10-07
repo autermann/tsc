@@ -1,62 +1,85 @@
-import arcpy
-import ec
 import textwrap
+from config import axis_model as model, setenv, fgdb
+from arcpy import Polyline, Array, PointGeometry
+from utils import SQL
 
+SEGMENT_BUFFER_SIZE = 20
 
-def field_exist(fc, name):
-    for field in arcpy.ListFields(fc):
-        if field.name == name:
-            return True
-    return False
+def add_segment_bbox_area():
+    model.segments.add_field('bbox_area', 'DOUBLE')
 
-def create_field(fc, field_name, field_type):
-    if field_exist(fc, field_name):
-        arcpy.management.DeleteField(fc, field_name)
-    arcpy.management.AddField(fc, field_name, field_type)
-
-def add_rank_field(model, field_name):
-
-    create_field(model.axis_segment_fc, field_name, 'LONG')
-
-    code_block = textwrap.dedent("""\
-    def calculate_rang(k, n):
-        if k is None: return -1
-        elif n is None: return 2 * k - 1
-        else: return 2 * k
-    """)
-
-
-    fl = arcpy.management.MakeFeatureLayer(model.axis_segment_fc, 'axes')
+    buffer_distance = '{0} Meters'.format(str(SEGMENT_BUFFER_SIZE))
+    segments_buffered = fgdb.feature_class('segments_buffered')
+    segments_bbox = fgdb.feature_class('segments_bbox')
+    segments = model.segments.view()
     try:
-        arcpy.management.AddJoin(fl, 'LSA', model.node_lsa_fc, 'LSA')
-        arcpy.management.AddJoin(fl, 'N_Einfluss', model.node_influence_fc, 'N_Einfluss')
+        segments_buffered.delete_if_exists()
+        segments_bbox.delete_if_exists()
 
-        arcpy.management.CalculateField(in_table=fl, field=field_name,
-            expression='calculate_rang(!K_LSA.K_Rang!, !N_Einflussbereich.N_Rang!)',
-            expression_type='PYTHON_9.3', code_block=code_block)
+        segments.buffer(segments_buffered, buffer_distance)
+        segments_buffered.minimum_bounding_geometry(segments_bbox)
+
+        segments_bbox.add_field('area', 'DOUBLE')
+        segments_bbox.calculate_field('area', '!shape.geodesicArea@SQUAREKILOMETERS!')
+
+        segments.add_join('segment_id', segments_bbox, 'segment_id')
+
+
+        segments.calculate_field('bbox_area', '!segments_bbox.area!')
     finally:
-        arcpy.management.Delete(fl)
+        segments_buffered.delete_if_exists()
+        segments.delete_if_exists()
+        segments_bbox.delete_if_exists()
 
 
-def add_id_field(model, field_name):
-    create_field(model.axis_segment_fc, field_name, 'LONG')
+def add_segment_rank():
+    model.segments.add_field('rank', 'LONG')
 
-    code_block = textwrap.dedent("""\
-    id = 0
-    def autoIncrement():
-        global id
-        id += 1
-        return id
-    """)
+    with model.influence_nodes.search(['Achsen_ID', 'N_Rang', 'N_Einfluss']) as sc:
+        for axis, rank, name in sc:
+            lsa = 'K' + name[1:-1]
+            rank = 2 * (rank - 1)
+            where_clause = SQL.and_((
+                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
+                    SQL.eq_('LSA', SQL.quote_(lsa)),
+                    SQL.eq_('Segmenttyp', 0)))
+            with model.segments.update(['Segmenttyp', 'rank'], where_clause=where_clause) as rows:
+                for row in rows:
+                    row[1] = rank
+                    rows.updateRow(row)
 
-    arcpy.management.CalculateField(in_table=model.axis_segment_fc,
-        field=field_name, expression='autoIncrement()',
-        expression_type='PYTHON_9.3', code_block=code_block)
+    with model.lsa_nodes.search(['Achsen_ID', 'K_Rang', 'LSA']) as sc:
+        for axis, rank, name in sc:
+            lsa = name[:-1]
+            rank = 2 * (rank - 1) + 1
+            where_clause = SQL.and_((
+                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
+                    SQL.eq_('LSA', SQL.quote_(lsa)),
+                    SQL.eq_('Segmenttyp', 1)))
+            with model.segments.update(['rank'], where_clause=where_clause) as rows:
+                for row in rows:
+                    row[0] = rank
+                    rows.updateRow(row)
+
+def add_length_and_duration():
+    model.segments.add_field('length', 'DOUBLE')
+    model.segments.add_field('duration', 'DOUBLE')
+
+    with model.segments.update(['SHAPE@', 'length', 'duration' ]) as rows:
+        for row in rows:
+            shape = row[0]
+            array = Array([shape.firstPoint, shape.lastPoint])
+            polyline = Polyline(array, shape.spatialReference)
+            row[1] = shape.getLength('GEODESIC', 'METERS')
+            row[2] = row[1] / (50/3.6)
+            rows.updateRow(row)
+
 
 if __name__ == '__main__':
-    arcpy.env.overwriteOutput = True
-    arcpy.env.workspace = r'C:\tsc\workspace'
-    model = ec.AxisModel.for_dir(r'C:\tsc\model')
+    setenv()
+    fgdb.create_if_not_exists()
+    add_segment_bbox_area()
+    add_length_and_duration()
+    add_segment_rank()
 
-    add_id_field(model, 'segment_id')
-    add_rank_field(model, 'S_Rang')
+

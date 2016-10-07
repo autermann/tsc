@@ -29,3 +29,16 @@ build/Release
 node_modules
 
 *.pyc
+*.mxd
+
+workspace/
+model/
+model_neu/
+delivery/
+
+*.txt.xml
+*.csv
+*.ini
+*.gz
+*.backup
+*.gdb

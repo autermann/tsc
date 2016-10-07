@@ -1,14 +1,23 @@
-import arcpy
+from config import fgdb as fgdb_all, setenv, axis_model, workspace
+from ec import calculate_statistics, create_tracks, create_stop_table, find_passages, create_result_tables
+from ooarcpy import FileGDB
 import os
-import ec
 
 if __name__ == '__main__':
-    arcpy.env.overwriteOutput = True
-    arcpy.env.workspace = r'C:\tsc\workspace'
-    fgdb = os.path.join(arcpy.env.workspace, 'outputs.gdb')
+    setenv()
 
-    measurements_fc = os.path.join(fgdb, 'measurements')
-    stops_table = os.path.join(fgdb, 'stops')
+    fgdbs = [fgdb_all] + [FileGDB(os.path.join(workspace, 'week%d.gdb' % (week + 1))) for week in xrange(4)]
 
-    ec.calculate_statistics(measurements_fc, stops_table, fgdb)
+    for fgdb in fgdbs:
+        measurements = fgdb.feature_class('measurements')
+        stops = fgdb.table('stops')
+        try:
+            tracks = fgdb.feature_class('tracks')
+            create_tracks(measurements, tracks)
+            create_stop_table(measurements, stops)
+            calculate_statistics(axis_model, fgdb)
+            find_passages(fgdb, axis_model)
+        finally:
+            stops.delete_if_exists()
 
+        create_result_tables(fgdb, axis_model)
