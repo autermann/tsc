@@ -900,10 +900,11 @@ def calculate_statistics(model, fgdb):
             out_table = fgdb.table('speed_by_axis_' + postfix)
             tmpfc.statistics(
                 out_table=out_table,
-                statistics_fields=[('inverse_speed', 'SUM'), ('speed', 'MEAN')],
+                statistics_fields=[('inverse_speed', 'COUNT'), ('inverse_speed', 'SUM'), ('speed', 'MEAN')],
                 case_field=['axis'])
 
-            out_table.rename_field('FREQUENCY', 'num_observations')
+            out_table.rename_field('COUNT_inverse_speed', 'num_observations')
+            out_table.delete_field('FREQUENCY')
             out_table.rename_field('MEAN_speed', 'arithmetic_mean_speed')
             out_table.add_field('harmonic_mean_speed', 'DOUBLE')
             out_table.calculate_field('harmonic_mean_speed', '!num_observations!/!SUM_inverse_speed!')
@@ -913,10 +914,11 @@ def calculate_statistics(model, fgdb):
             out_table = fgdb.table('speed_by_axis_segment_' + postfix)
             tmpfc.statistics(
                 out_table=out_table,
-                statistics_fields=[('inverse_speed', 'SUM'), ('speed', 'MEAN')],
+                statistics_fields=[('inverse_speed', 'COUNT'), ('inverse_speed', 'SUM'), ('speed', 'MEAN')],
                 case_field=['axis', 'segment'])
 
-            out_table.rename_field('FREQUENCY', 'num_observations')
+            out_table.rename_field('COUNT_inverse_speed', 'num_observations')
+            out_table.delete_field('FREQUENCY')
             out_table.rename_field('MEAN_speed', 'arithmetic_mean_speed')
             out_table.add_field('harmonic_mean_speed', 'DOUBLE')
             out_table.calculate_field('harmonic_mean_speed', '!num_observations!/!SUM_inverse_speed!')
