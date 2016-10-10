@@ -5,7 +5,7 @@ var ProgressBar = require('progress');
 module.exports = function iterateEntities(url, collection, q, callback) {
 
   MongoClient.connect(url, function onConnect(err, db) {
-
+    var cursor;
     if (err) {
       return callback(err, null);
     } else {
@@ -13,9 +13,12 @@ module.exports = function iterateEntities(url, collection, q, callback) {
       db.collection(collection).count(q).then(function(count) {
 
         var bar = new ProgressBar('[:bar] :current/:total ETA: :etas', {
-          total: count, complete: '#', incomplete: '-'
+          total: count,
+          complete: '#',
+          incomplete: '-',
+          renderThrottle: 1000
         });
-        var cursor = db.collection(collection).find(q);
+        cursor = db.collection(collection).find(q);
         cursor.next(consume);
         function consume(err, result) {
           if (err || result === null) {
@@ -33,11 +36,23 @@ module.exports = function iterateEntities(url, collection, q, callback) {
     }
 
     function close(err, result) {
-      cursor.close(function onCursorClose() {
-        db.close(false, function onDbClose() {
+      function dbClose() {
+        if (db) {
+          db.close(false, function onDbClose() {
+            callback(err, result);
+          });
+        } else {
           callback(err, result);
+        }
+      }
+      if (cursor) {
+        cursor.close(function onCursorClose() {
+          dbClose();
         });
-      });
+      } else {
+        dbClose();
+      }
+
     }
   });
 };
