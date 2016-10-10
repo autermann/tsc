@@ -776,25 +776,25 @@ def merge_feature_classes(feature_classes, target, delete=True):
 def create_tracks(in_fc, out_fc):
     def workday_is_in_range(start, end, min_hour, max_hour):
         if min_hour <= max_hour:
-            start = (start.weekday() < 5 and min_hour <= start.hour < max_hour)
-            end = (end.weekday() < 5 and min_hour <= end.hour < max_hour)
+            return ((start.weekday() < 5 and min_hour <= start.hour < max_hour) or
+                               (end.weekday() < 5 and min_hour <= end.hour < max_hour))
         else:
-            start = (start.weekday() < 5 and (min_hour <= start.hour or start.hour < max_hour))
-            end = (end.weekday() < 5 and (min_hour <= end.hour or end.hour < max_hour))
-        return start or end
+            return ((start.weekday() < 5 and (min_hour <= start.hour or start.hour < max_hour)) or
+                               (end.weekday() < 5 and (min_hour <= end.hour or end.hour < max_hour)))
 
     def weekend_is_in_range(start, end, min_hour, max_hour):
         if min_hour <= max_hour:
-            start = (start.weekday() >= 5 and min_hour <= start.hour < max_hour)
-            end = (end.weekday() >= 5 and min_hour <= end.hour < max_hour)
+            return ((start.weekday() >= 5 and min_hour <= start.hour < max_hour) or
+                              (end.weekday() >= 5 and min_hour <= end.hour < max_hour))
         else:
-            start = (start.weekday() >= 5 and (min_hour <= start.hour or start.hour < max_hour))
-            end = (end.weekday() >= 5 and (min_hour <= end.hour or end.hour < max_hour))
-        return start or end
+            return ((start.weekday() >= 5 and (min_hour <= start.hour or start.hour < max_hour)) or
+                               (end.weekday() >= 5 and (min_hour <= end.hour or end.hour < max_hour)))
 
     def _as_polyline(coordinates):
         points = (Point(*c) for c in coordinates)
-        return Polyline(Array(points))
+        polyline = Polyline(Array(points))
+        log.debug('Created polyline from %d points', len(coordinates))
+        return polyline
 
     def _create_polylines(rows):
         caxis = None
@@ -803,6 +803,7 @@ def create_tracks(in_fc, out_fc):
         start_time = None
         stop_time = None
         complete = None
+
         def create_row():
             duration = long((stop_time - start_time).total_seconds() * 10**3)
 
@@ -850,6 +851,7 @@ def create_tracks(in_fc, out_fc):
         if coordinates is not None:
             yield create_row()
 
+    out_fc.delete_if_exists()
     out_fc.create(geometry_type='POLYLINE', spatial_reference = SpatialReference(4326))
 
     out_fc.add_field('axis', 'TEXT')
@@ -875,10 +877,11 @@ def create_tracks(in_fc, out_fc):
         'workday_morning', 'workday_noon', 'workday_evening', 'workday_night'
     ]
     input_fields = ['SHAPE@XY', 'axis', 'track', 'time', 'complete_axis_match']
+    where_clause = 'mongoid IS NOT NULL'
     sql_clause = (None, 'ORDER BY axis, track, time')
 
     with out_fc.insert(output_fields) as insert:
-        with in_fc.search(input_fields, sql_clause=sql_clause) as rows:
+        with in_fc.search(input_fields, sql_clause=sql_clause, where_clause=where_clause) as rows:
             for polyline in _create_polylines(rows):
                 insert.insertRow(polyline)
 

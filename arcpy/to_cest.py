@@ -36,13 +36,12 @@ if __name__ == '__main__':
 
         if arcpy.Exists(target):
             arcpy.management.Delete(target)
-
         arcpy.management.Copy(source, target)
 
-    for fgdb in [ooarcpy.FileGDB(os.path.join(directory, name)) for name in names]:
-        tracks = fgdb.feature_class('tracks')
+        fgdb = ooarcpy.FileGDB(target)
         measurements = fgdb.feature_class('measurements')
         measurements.calculate_field('time', 'to_cest(!time!)', code_block=code_block)
+        tracks = fgdb.feature_class('tracks')
         tracks.calculate_field('start_time', 'to_cest(!start_time!)', code_block=code_block)
         tracks.calculate_field('stop_time', 'to_cest(!stop_time!)', code_block=code_block)
 

@@ -10,10 +10,10 @@
 ## Axis Matching
 * Create a FileGDB with the feature classes from the Postgres database. This can be done using `arcpy/postgres_to_fgdb.py` (untested, did it manually). This is done because using Postgres directly fails most of the time...
 * Adjust paths in `arcpy/config.py` as necessary.
+* Run `arcpy/preprocess_axes.py`.
 * Run `arcpy/create_subsets.py` to create a subset of measurements with matching axis segments. This will create a new FileGDB and will take about 6.5 hours... The also will be a number of CSV files in the workspace directory.
 
 ## Analysis
-* Run `arcpy/add_time_segment_fields.py` to add indices and time segment fields.
 * Use `arcpy/split_fgdb.py` to create one FileGDB per week.
 * Run `arcpy/calculate_statistics.py` to create the actual analysis (takes about half an hour).
 * Use `arcpy/to_cest.py` to create a copy of the outputs with CEST instead of UTC times.
