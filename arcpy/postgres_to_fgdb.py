@@ -1,11 +1,14 @@
 import arcpy
 import os
 
+from ooarcpy import FileGDB
+
 tracks_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.tracks'
 measurements_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.measurements'
 trajectories_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.trajectories'
 
 out_fgdb=r'C:\tsc\envirocar.gdb'
+FileGDB(out_fgdb).create_if_not_exists()
 
 tracks_out = os.path.join(out_fgdb, 'tracks')
 measurements_out = os.path.join(out_fgdb, 'measurements')
