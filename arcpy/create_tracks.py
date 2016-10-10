@@ -6,10 +6,9 @@ import os
 
 if __name__ == '__main__':
   setenv()
-  #fgdbs = [fgdb_all]
-  fgdbs = [fgdb_all] + [FileGDB(os.path.join(workspace, 'week%d.gdb' % (week + 1))) for week in xrange(4)]
-  #fgdbs = [FileGDB(os.path.join(workspace, 'week%d.gdb' % (week + 1))) for week in xrange(4)]
-  #fgdbs = [FileGDB(os.path.join(workspace, 'week1.gdb'))]
+
+  names = ['summer', 'all'] + ['week%d' % (week+1) for week in range(8)]
+  fgdbs = [FileGDB(os.path.join(workspace, name)) for name in names]
 
   for fgdb in fgdbs:
     measurements = fgdb.feature_class('measurements')

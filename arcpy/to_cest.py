@@ -28,7 +28,8 @@ if __name__ == '__main__':
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    names = ['outputs.gdb'] + ['week%d.gdb' % (week + 1) for week in xrange(4)]
+    names = ['summer', 'all'] + ['week%d' % (week+1) for week in range(8)]
+    fgdbs = [FileGDB(os.path.join(workspace, name)) for name in names]
 
     for name in names:
         source = os.path.join(config.workspace, name)
