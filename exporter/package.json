@@ -13,6 +13,7 @@
     "mongodb": "^2.1.19",
     "pg": "^4.5.5",
     "pg-copy-streams": "^0.3.0",
-    "pg-minify": "^0.2.5"
+    "pg-minify": "^0.2.5",
+    "progress": "^1.1.8"
   }
 }

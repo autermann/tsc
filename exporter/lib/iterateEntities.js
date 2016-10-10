@@ -1,19 +1,32 @@
 
 var MongoClient = require('mongodb').MongoClient;
+var ProgressBar = require('progress');
 
 module.exports = function iterateEntities(url, collection, q, callback) {
 
   MongoClient.connect(url, function onConnect(err, db) {
-    var cursor;
 
     if (err) {
       return callback(err, null);
     } else {
       console.log("Query: " + JSON.stringify(q, null, 2));
       db.collection(collection).count(q).then(function(count) {
-        console.log("Iterating over " + count + " entities");
-        cursor = db.collection(collection).find(q);
+
+        var bar = new ProgressBar('[:bar] :current/:total ETA: :etas', {
+          total: count, complete: '#', incomplete: '-'
+        });
+        var cursor = db.collection(collection).find(q);
         cursor.next(consume);
+        function consume(err, result) {
+          if (err || result === null) {
+            close(err, result);
+          } else {
+            bar.tick();
+            callback(null, result);
+            cursor.next(consume);
+          }
+        }
+
       }).catch(function(err) {
         close(err, null);
       });
@@ -26,15 +39,5 @@ module.exports = function iterateEntities(url, collection, q, callback) {
         });
       });
     }
-
-    function consume(err, result) {
-      if (err || result === null) {
-        close(err, result);
-      } else {
-        callback(null, result);
-        cursor.next(consume);
-      }
-    }
-
   });
 };
