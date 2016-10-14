@@ -200,7 +200,6 @@ class ArcPyEntityBase(object):
         fields = ', '.join('!{}!'.format(field) for field in fields)
         expression = '"|".join(str(x) for x in ({}))'.format(fields)
         self.calculate_field(field_name, expression)
-        debug('arcpy.management.AddIndex', (self.id, field_name, field_name + '_idx'))
         self.add_index(field_name, field_name + '_idx')
 
     def add_index(self, fields, index_name, unique=False, ascending=False):
@@ -439,4 +438,3 @@ class TableView(ArcPyEntityView, TableLikeArcPyEntityBase):
     def delete_rows(self):
         debug('arcpy.management.DeleteRows', (self.id,))
         arcpy.management.DeleteRows(self.id)
-

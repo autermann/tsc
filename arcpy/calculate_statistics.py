@@ -8,7 +8,7 @@ if __name__ == '__main__':
 
 
     names = ['summer', 'all'] + ['week%d' % (week+1) for week in range(8)]
-    fgdbs = [FileGDB(os.path.join(workspace, name)) for name in names]
+    fgdbs = [FileGDB(os.path.join(workspace, '%s.gdb' % name)) for name in names]
 
 
     for fgdb in fgdbs:

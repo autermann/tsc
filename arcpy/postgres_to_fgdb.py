@@ -8,7 +8,9 @@ measurements_in = r'Database Connections\envirocar@localhost.sde\envirocar.publi
 trajectories_in = r'Database Connections\envirocar@localhost.sde\envirocar.public.trajectories'
 
 out_fgdb=r'C:\tsc\envirocar.gdb'
-FileGDB(out_fgdb).create_if_not_exists()
+fgdb = FileGDB(out_fgdb)
+fgdb.delete_if_exists()
+fgdb.create_if_not_exists()
 
 tracks_out = os.path.join(out_fgdb, 'tracks')
 measurements_out = os.path.join(out_fgdb, 'measurements')

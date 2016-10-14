@@ -1060,7 +1060,6 @@ def calculate_statistics(model, fgdb):
                 out_table=out_table,
                 statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
                 case_field=['axis','segment'])
-            stops
             out_table.rename_field('COUNT_duration', 'stops')
             out_table.delete_field('FREQUENCY')
             out_table.rename_field('MEAN_duration', 'duration')
@@ -1804,4 +1803,3 @@ def create_result_tables(fgdb, model):
                             sink.updateRow(sink_row)
 
             table_by_axis_segment.delete()
-

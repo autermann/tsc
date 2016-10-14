@@ -28,8 +28,7 @@ if __name__ == '__main__':
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    names = ['summer', 'all'] + ['week%d' % (week+1) for week in range(8)]
-    fgdbs = [FileGDB(os.path.join(workspace, name)) for name in names]
+    names = ['summer.gdb', 'all.gdb'] + ['week%d.gdb' % (week+1) for week in range(8)]
 
     for name in names:
         source = os.path.join(config.workspace, name)
@@ -45,5 +44,3 @@ if __name__ == '__main__':
         tracks = fgdb.feature_class('tracks')
         tracks.calculate_field('start_time', 'to_cest(!start_time!)', code_block=code_block)
         tracks.calculate_field('stop_time', 'to_cest(!stop_time!)', code_block=code_block)
-
-
