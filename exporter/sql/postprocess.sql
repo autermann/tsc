@@ -83,8 +83,7 @@ RETURNS TABLE(id integer, start_time bigint, end_time bigint, geom Geometry(Line
       -- point to single point geometries
       SELECT track, rank, start_time, end_time,
         (CASE
-          WHEN ST_NumPoints(geom) = 2
-            AND ST_StartPoint(geom) = ST_Endpoint(geom)
+          WHEN ST_NumPoints(geom) = 2 AND (ST_AsText(ST_StartPoint(geom)) = ST_AsText(ST_Endpoint(geom)) OR ST_Distance(ST_StartPoint(geom), ST_Endpoint(geom)) < 1e-8)
           THEN ST_StartPoint(geom)
           ELSE geom
         END) AS geom
@@ -98,7 +97,8 @@ RETURNS TABLE(id integer, start_time bigint, end_time bigint, geom Geometry(Line
       SELECT *, SUM(r) OVER (PARTITION BY track ORDER BY rank) AS grp
       FROM (
         SELECT *, (
-          CASE WHEN ST_OrderingEquals(geom, LAG(geom) OVER (PARTITION BY track ORDER BY rank))
+          CASE
+          WHEN ST_AsText(geom) = ST_AsText(LAG(geom) OVER (PARTITION BY track ORDER BY rank))
           THEN 0 ELSE 1 END) AS r
         FROM t2 AS foo
       ) AS foo
@@ -302,8 +302,8 @@ WITH m AS (
             m.consumption AS consumption_1,
             m.sensor,
             m.track,
-            generate_series(1, 5) AS i,
-            5 AS n
+            generate_series(1, 4) AS i,
+            4 AS n
           FROM measurements AS m
           WINDOW w AS (
             PARTITION BY m.track
@@ -364,4 +364,7 @@ INSERT INTO trajectories (track, start_time, end_time, geom)
   FROM create_trajectories(8001,  9000)
   UNION ALL
   SELECT id, start_time, end_time, geom
-  FROM create_trajectories(9001, 10000)
+  FROM create_trajectories(9001, 10000);
+
+DELETE FROM tracks WHERE ST_NumPoints(geom) = 2 AND ST_AsText(ST_StartPoint(geom)) = ST_AsText(ST_Endpoint(geom))
+DELETE FROM trajectories WHERE ST_NumPoints(geom) = 2 AND ST_AsText(ST_StartPoint(geom)) = ST_AsText(ST_Endpoint(geom))
