@@ -1,11 +1,10 @@
+ALTER TABLE measurements
+  ALTER COLUMN "time" SET DATA TYPE bigint
+    USING EXTRACT(EPOCH FROM "time") * 1000;
+
 CREATE OR REPLACE FUNCTION interpolate_linear(DOUBLE PRECISION, DOUBLE PRECISION, INTEGER, INTEGER)
 RETURNS DOUBLE PRECISION AS
 $$ SELECT $1 + ($3/($4::numeric + 1)) * ($2-$1) $$
-LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT;
-
-CREATE OR REPLACE FUNCTION epoch_to_timestamp(DOUBLE PRECISION)
-RETURNS TIMESTAMP WITHOUT TIME ZONE AS
-$$ SELECT TIMESTAMP WITHOUT TIME ZONE 'epoch' + $1 * INTERVAL '1 second' $$
 LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION angular_distance(p1 GEOMETRY(Point, 4326), p2 GEOMETRY(Point, 4326))
@@ -60,7 +59,7 @@ $$ SELECT intermediate_point($1, $2, angular_distance($1, $2), $3); $$
 LANGUAGE SQL IMMUTABLE RETURNS NULL ON NULL INPUT;
 
 CREATE OR REPLACE FUNCTION create_trajectories(bigint, bigint)
-RETURNS TABLE(id integer, start_time timestamp without time zone, end_time timestamp without time zone, geom Geometry(LineString, 4326)) AS $$
+RETURNS TABLE(id integer, start_time bigint, end_time bigint, geom Geometry(LineString, 4326)) AS $$
   WITH
     t1 AS (
       -- create the basic trajectories, this may contain
@@ -176,8 +175,8 @@ CREATE TABLE tracks (
 CREATE TABLE trajectories (
   id SERIAL PRIMARY KEY,
   track INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-  start_time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-  end_time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  start_time BIGINT NOT NULL,
+  end_time BIGINT NOT NULL,
   geom GEOMETRY(LineString, 4326) NOT NULL
 );
 
@@ -259,7 +258,7 @@ WITH m AS (
       SUM(m.distance_delta) OVER all_points +
         LAST_VALUE(m.speed) OVER all_points *
         (m.time_1 - LAST_VALUE(m.time) OVER all_points) AS distance_sum,
-      epoch_to_timestamp(m.time) AS time,
+      m.time AS time,
       m.speed*3.6 AS speed,
       m.co2,
       m.consumption,
@@ -273,9 +272,15 @@ WITH m AS (
         (LAG(m.speed, 1, m.speed_0) OVER w) *
           (m.time-(LAG(m.time, 1, m.time_0) OVER w)) AS distance_delta
       FROM (
-        SELECT m.id, m.distance, m.g0, m.g1, m.speed_0,
+        SELECT
+          m.id,
+          m.distance,
+          m.g0,
+          m.g1,
+          m.speed_0,
           interpolate_linear(m.speed_0, m.speed_1, m.i, m.n) AS speed,
-          m.time_0, m.time_1,
+          m.time_0,
+          m.time_1,
           interpolate_linear(m.time_0, m.time_1, m.i, m.n) AS time,
           interpolate_linear(m.co2_0, m.co2_1, m.i, m.n) AS co2,
           interpolate_linear(m.consumption_0, m.consumption_1, m.i, m.n) AS consumption,
@@ -287,8 +292,8 @@ WITH m AS (
             LAG(m.geom) OVER w AS g0,
             m.geom AS g1,
             angular_distance(LAG(m.geom) OVER w, m.geom) AS distance,
-            EXTRACT(EPOCH FROM LAG(m.time) OVER w) AS time_0,
-            EXTRACT(EPOCH FROM m.time) AS time_1,
+            LAG(m.time) OVER w AS time_0,
+            m.time AS time_1,
             (LAG(m.speed) OVER w)/3.6 AS speed_0,
             m.speed/3.6 AS speed_1,
             LAG(m.co2) OVER w AS co2_0,

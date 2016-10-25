@@ -9,14 +9,7 @@ code_block = textwrap.dedent("""\
 from datetime import datetime, timedelta
 offset = timedelta(hours=2)
 def to_cest(time):
-    format_string = None
-    if len(time) > 19:
-        format_string = '%d.%m.%Y %H:%M:%S.%f'
-    elif len(time) > 10:
-        format_string = '%d.%m.%Y %H:%M:%S'
-    else:
-        format_string = '%d.%m.%Y'
-    utc = datetime.strptime(time, format_string)
+    utc = datetime.fromtimestamp(time/1000)
     cest = utc + offset
     return cest.strftime('%d.%m.%Y %H:%M:%S')
 """)

@@ -11,8 +11,8 @@ from datetime import timedelta, datetime
 from utils import first, nwise, min_max, SQL, gzip_file
 import logging
 
-MAX_TIME_SPAN_SAME_NODE = timedelta(seconds=10)
-MAX_TIME_SPAN_CONSECUTIVE_NODES = timedelta(seconds=60)
+MAX_TIME_SPAN_SAME_NODE = 10 * 1000
+MAX_TIME_SPAN_CONSECUTIVE_NODES = 60 * 1000
 NUM_CONSECUTIVE_MATCHES = 4
 NODE_BUFFER_SIZE = 20
 NODE_TYPE_START = 1
@@ -87,7 +87,7 @@ class TrackMatchingResult(object):
     def get_measurement_bbox_area(self, time):
         where_clause = SQL.and_((
             SQL.eq_('track', self.track),
-            SQL.is_between_('time', ['date {}'.format(SQL.quote_(time.replace(microsecond=0))) for time in time])
+            SQL.is_between_('time', [time for time in time])
             ))
 
         points = [Point(*row[0]) for row in self.measurements.search('SHAPE@XY', where_clause)]
@@ -224,7 +224,7 @@ class NodeMatchingResult(object):
         Convert this result to a SQL-WHERE-clause that can be applied to the
         measurements table.
         """
-        return SQL.is_between_('time', ['date {}'.format(SQL.quote_(time.replace(microsecond=0))) for time in self.time])
+        return SQL.is_between_('time', [time for time in self.time])
 
     @property
     def min_idx(self):
@@ -540,7 +540,7 @@ class TrackMatcher(object):
         if count:
             min_time = None
             max_time = None
-            threshold = timedelta(seconds=20)
+            threshold = 20 * 1000
 
             fields = ['start_time', 'end_time']
             sql_clause = (None, 'ORDER BY start_time')
@@ -567,7 +567,7 @@ class TrackMatcher(object):
         return [x for x in [self.get_track_matches(track, axis) for track in tracks] if len(x) > 0]
 
     def create_csv_export_fields(self):
-        def to_cest(x): return x + timedelta(hours = 2)
+        def to_cest(x): return datetime.utcfromtimestamp(x/1000) + timedelta(hours = 2)
         def format_time(x): return to_cest(x).strftime('%H:%M:%S')
         def format_date(x): return to_cest(x).strftime('%d.%m.%Y')
         def identity(x): return x
@@ -612,7 +612,7 @@ class TrackMatcher(object):
                     writer.writerow(convert_row(row))
 
 class Stop(object):
-    SAMPLING_RATE = timedelta(seconds=1)
+    SAMPLING_RATE = 1 * 1000
 
     def __init__(self, axis, segment, track, start, stop, complete):
         self.track = track
@@ -680,7 +680,7 @@ class Stop(object):
 
 def create_stop_table(in_fc, out_table):
     field_names = ['axis', 'segment', 'track', 'start_time', 'end_time', 'duration', 'complete']
-    field_types = ['TEXT', 'LONG',    'TEXT',  'DATE',       'DATE',     'LONG'    , 'SHORT'   ]
+    field_types = ['TEXT', 'LONG',    'TEXT',  'DOUBLE',     'DOUBLE',   'LONG'    , 'SHORT'   ]
 
     out_table.delete_if_exists()
     out_table.create()
@@ -691,21 +691,14 @@ def create_stop_table(in_fc, out_table):
 
     with out_table.insert(field_names) as insert:
         for stop in Stop.find(in_fc, stop_start_threshold=5, stop_end_threshold=10):
-            duration = long(stop.duration.total_seconds() * 10**3)
-            insert.insertRow((stop.axis, stop.segment, stop.track, stop.start, stop.stop, duration, stop.complete))
+            insert.insertRow((stop.axis, stop.segment, stop.track, stop.start, stop.stop, stop.duration, stop.complete))
 
 
     code_block = textwrap.dedent("""\
     from datetime import datetime
 
     def parse(s):
-        if len(s) > 19:
-            format_string = '%d.%m.%Y %H:%M:%S.%f'
-        elif len(s) > 10:
-            format_string = '%d.%m.%Y %H:%M:%S'
-        else:
-            format_string = '%d.%m.%Y'
-        return datetime.strptime(s, format_string)
+        return datetime.utcfromtimestamp(s/1000)
 
     def workday_is_in_range(start, end, min_hour, max_hour):
         start = parse(start)
@@ -796,6 +789,9 @@ def create_tracks(in_fc, out_fc):
         log.debug('Created polyline from %d points', len(coordinates))
         return polyline
 
+    def to_millis(dt):
+        return (dt-datetime(1970, 1, 1)).total_seconds() * 1000
+
     def _create_polylines(rows):
         caxis = None
         ctrack = None
@@ -805,7 +801,7 @@ def create_tracks(in_fc, out_fc):
         complete = None
 
         def create_row():
-            duration = long((stop_time - start_time).total_seconds() * 10**3)
+            duration = long((stop_time - start_time).total_seconds() * 1000)
 
             weekend_morning = weekend_is_in_range(start_time, stop_time,  4, 8)
             weekend_noon = weekend_is_in_range(start_time, stop_time, 10, 12)
@@ -817,7 +813,8 @@ def create_tracks(in_fc, out_fc):
             workday_evening = workday_is_in_range(start_time, stop_time, 13, 17)
             workday_night = workday_is_in_range(start_time, stop_time, 19, 4)
 
-            return (_as_polyline(coordinates), caxis, ctrack, start_time, stop_time, duration, complete,
+            return (_as_polyline(coordinates), caxis, ctrack, to_millis(start_time), to_millis(stop_time),
+                duration, complete,
                 weekend_morning, weekend_noon, weekend_evening, weekend_night,
                 workday_morning, workday_noon, workday_evening, workday_night)
 
@@ -843,10 +840,10 @@ def create_tracks(in_fc, out_fc):
             if coordinates is None:
                 coordinates = [coords]
                 complete = complete_axis_match
-                start_time = stop_time = time
+                start_time = stop_time = datetime.utcfromtimestamp(time/1000)
             else:
                 coordinates.append(coords)
-                stop_time = time
+                stop_time = datetime.utcfromtimestamp(time/1000)
 
         if coordinates is not None:
             yield create_row()
@@ -856,8 +853,8 @@ def create_tracks(in_fc, out_fc):
 
     out_fc.add_field('axis', 'TEXT')
     out_fc.add_field('track', 'TEXT')
-    out_fc.add_field('start_time', 'DATE')
-    out_fc.add_field('stop_time', 'DATE')
+    out_fc.add_field('start_time', 'DOUBLE')
+    out_fc.add_field('stop_time', 'DOUBLE')
     out_fc.add_field('duration', 'LONG')
     out_fc.add_field('complete', 'SHORT')
 
@@ -1101,22 +1098,9 @@ def calculate_statistics(model, fgdb):
             out_table=tmp_table,
             statistics_fields=[('time', 'MIN'), ('time', 'MAX')],
             case_field=['axis', 'segment', 'track'])
-        code_block = textwrap.dedent("""\
-        from datetime import datetime
-        def parse(s):
-            if len(s) > 19:
-                format_string = '%d.%m.%Y %H:%M:%S.%f'
-            elif len(s) > 10:
-                format_string = '%d.%m.%Y %H:%M:%S'
-            else:
-                format_string = '%d.%m.%Y'
-            return datetime.strptime(s, format_string)
-        def get_duration(start, end):
-            return (parse(end)-parse(start)).total_seconds()*1000
-        """)
 
         tmp_table.add_field('duration', 'LONG')
-        tmp_table.calculate_field('duration', 'get_duration(!MIN_time!, !MAX_time!)', code_block=code_block)
+        tmp_table.calculate_field('duration', '!MAX_time!-!MIN_time!')
 
         def get_length_of_track_on_segment(track, axis, min_time, max_time):
             min_point = get_point(track, axis, min_time)
@@ -1134,20 +1118,14 @@ def calculate_statistics(model, fgdb):
 
         def get_point(track, axis, time):
 
-            min_time = time.replace(microsecond=0) - timedelta(seconds=1)
-            max_time = time.replace(microsecond=0) + timedelta(seconds=1)
-
             where_clause = SQL.and_((
                 SQL.eq_('axis', SQL.quote_(axis)),
                 SQL.eq_('track', SQL.quote_(track)),
-                SQL.is_between_('time', (
-                    'date {}'.format(SQL.quote_(datetime.strftime(min_time, '%Y-%m-%d %H:%M:%S'))),
-                    'date {}'.format(SQL.quote_(datetime.strftime(max_time, '%Y-%m-%d %H:%M:%S')))))))
+                SQL.eq_('time', time)))
 
             with measurement_view.search(['SHAPE@', 'time'], where_clause=where_clause) as rows:
                 for row in rows:
-                    if row[1] == time:
-                        return row[0]
+                    return row[0]
             return None
 
 
@@ -1428,15 +1406,7 @@ def create_segments_per_track_table(fgdb, axis_track_segment, num_segments_per_a
         from datetime import datetime
 
         def parse(s):
-            format_string = None
-            if len(s) > 19:
-                format_string = '%d.%m.%Y %H:%M:%S.%f'
-            elif len(s) > 10:
-                format_string = '%d.%m.%Y %H:%M:%S'
-            else:
-                format_string = '%d.%m.%Y'
-            return datetime.strptime(s, format_string)
-
+            return datetime.utcfromtimestamp(s/1000)
 
         def is_complete(axis_segments, track_segments):
             return True if axis_segments == track_segments else False
@@ -1644,14 +1614,7 @@ def add_time_segment_fields(feature_class):
     from datetime import datetime
 
     def parse(s):
-        format_string = None
-        if len(s) > 19:
-            format_string = '%d.%m.%Y %H:%M:%S.%f'
-        elif len(s) > 10:
-            format_string = '%d.%m.%Y %H:%M:%S'
-        else:
-            format_string = '%d.%m.%Y'
-        return datetime.strptime(s, format_string)
+        return datetime.utcfromtimestamp(s/1000)
 
     def workday_is_in_range(time, min_hour, max_hour):
         time = parse(time)

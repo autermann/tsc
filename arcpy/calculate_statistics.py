@@ -6,15 +6,17 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
 if __name__ == '__main__':
     setenv()
 
 
-    names = ['summer', 'all'] + ['week%d' % (week+1) for week in range(8)]
+    #names = ['all', 'summer'] + ['week%d' % (week+1) for week in range(8)]
+    names = ['all']
     fgdbs = [FileGDB(os.path.join(workspace, '%s.gdb' % name)) for name in names]
 
-
     for fgdb in fgdbs:
+
         log.debug('calculating statistics for %s', fgdb.id)
         measurements = fgdb.feature_class('measurements')
         stops = fgdb.table('stops')
