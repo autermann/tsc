@@ -65,12 +65,8 @@ def add_length_and_duration():
     model.segments.add_field('length', 'DOUBLE')
     model.segments.add_field('duration', 'DOUBLE')
 
-    with model.segments.update(['laenge', 'length', 'duration' ]) as rows:
-        for row in rows:
-            row[1] = row[0]
-            row[2] = row[1] / (50/3.6)
-            rows.updateRow(row)
-
+    model.segments.calculate_field('length', '!laenge!')
+    model.segments.calculate_field('duration', '!laenge!/(50/3.6)')
 
 if __name__ == '__main__':
     setenv()
