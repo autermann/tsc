@@ -1107,6 +1107,7 @@ def calculate_statistics(model, fgdb):
         try:
             out_table_view.add_join('axis', speed_table_view, 'axis')
             out_table_view.calculate_field('duration', '1000*((!{0}.arithmetic_mean_speed!/(!{1}.length!/1000))/3600)'.format(speed_table_view.name, out_table_view.name))
+            out_table.delete_field('length')
         finally:
             out_table_view.delete_if_exists()
             speed_table_view.delete_if_exists()
@@ -1127,6 +1128,7 @@ def calculate_statistics(model, fgdb):
         try:
             out_table_view.add_join('axis', speed_table_view , 'axis')
             out_table_view.calculate_field('duration', '1000*((!{0}.arithmetic_mean_speed!/(!{1}.length!/1000))/3600)'.format(speed_table_view.name, out_table_view.name))
+            out_table.delete_field('length')
         finally:
             out_table_view.delete_if_exists()
             speed_table_view.delete_if_exists()
