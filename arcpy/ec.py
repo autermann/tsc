@@ -1814,10 +1814,10 @@ def create_result_tables(fgdb, model):
     # to get the value per 100km
     for classifier in classifiers:
       column = 'consumption_{0}'.format(classifier)
-      formula = '!consumption_{0}!/!harmonic_mean_speed_{0}!*100'.format(classifier)
+      formula = '!consumption_{0}!/!arithmetic_mean_speed_{0}!*100'.format(classifier)
       axis_table.calculate_field(column, formula)
       axis_segment_table.calculate_field(column, formula)
       column = 'co2_{0}'.format(classifier)
-      formula = '!co2_{0}!/!harmonic_mean_speed_{0}!*100'.format(classifier)
+      formula = '!co2_{0}!/!arithmetic_mean_speed_{0}!*100'.format(classifier)
       axis_table.calculate_field(column, formula)
       axis_segment_table.calculate_field(column, formula)
