@@ -1096,10 +1096,10 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('travel_time_by_axis_' + postfix)
         model.segments.statistics(
             out_table=out_table,
-            statistics_fields=[('length', 'SUM')],
+            statistics_fields=[('laenge', 'SUM')],
             case_field='Achsen_ID')
         out_table.rename_field('Achsen_ID', 'axis')
-        out_table.rename_field('SUM_length', 'length')
+        out_table.rename_field('SUM_laenge', 'length')
         out_table.delete_field('FREQUENCY')
         out_table.add_field('duration', 'LONG')
         out_table_view = out_table.view()
@@ -1116,11 +1116,11 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('travel_time_by_axis_segment_' + postfix)
         model.segments.statistics(
             out_table=out_table,
-            statistics_fields=[('length', 'SUM')],
+            statistics_fields=[('laenge', 'SUM')],
             case_field=['Achsen_ID', 'segment_id'])
         out_table.rename_field('Achsen_ID', 'axis')
         out_table.rename_field('segment_id', 'segment')
-        out_table.rename_field('SUM_length', 'length')
+        out_table.rename_field('SUM_laenge', 'length')
         out_table.delete_field('FREQUENCY')
         out_table.add_field('duration', 'LONG')
         out_table_view = out_table.view()
