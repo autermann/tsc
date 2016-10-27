@@ -11,8 +11,7 @@ if __name__ == '__main__':
     setenv()
 
 
-    #names = ['all', 'summer'] + ['week%d' % (week+1) for week in range(8)]
-    names = ['all']
+    names = ['all', 'summer'] + ['week%d' % (week+1) for week in range(8)]
     fgdbs = [FileGDB(os.path.join(workspace, '%s.gdb' % name)) for name in names]
 
     for fgdb in fgdbs:
