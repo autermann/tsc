@@ -909,7 +909,7 @@ def calculate_statistics(model, fgdb):
 
             tmpfc_view = tmpfc.view()
             try:
-                tmpfc_view.subset_selection(SQL.eq_('complete_axis_match', 1))
+                tmpfc_view.new_selection(SQL.eq_('complete_axis_match', 1))
                 out_table = fgdb.table('speed_by_axis_' + postfix)
                 tmpfc_view.statistics(
                     out_table=out_table,
