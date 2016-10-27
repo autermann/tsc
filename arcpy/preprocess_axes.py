@@ -65,12 +65,9 @@ def add_length_and_duration():
     model.segments.add_field('length', 'DOUBLE')
     model.segments.add_field('duration', 'DOUBLE')
 
-    with model.segments.update(['SHAPE@', 'length', 'duration' ]) as rows:
+    with model.segments.update(['laenge', 'length', 'duration' ]) as rows:
         for row in rows:
-            shape = row[0]
-            array = Array([shape.firstPoint, shape.lastPoint])
-            polyline = Polyline(array, shape.spatialReference)
-            row[1] = shape.getLength('GEODESIC', 'METERS')
+            row[1] = row[0]
             row[2] = row[1] / (50/3.6)
             rows.updateRow(row)
 
@@ -81,5 +78,3 @@ if __name__ == '__main__':
     add_segment_bbox_area()
     add_length_and_duration()
     add_segment_rank()
-
-
