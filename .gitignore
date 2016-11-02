@@ -33,8 +33,7 @@ node_modules
 
 workspace/
 model/
-model_neu/
-model_old/
+model_*/
 delivery/
 
 *.txt.xml
