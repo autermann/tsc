@@ -35,31 +35,15 @@ def add_segment_bbox_area():
 def add_segment_rank():
     model.segments.add_field('rank', 'LONG')
 
-    with model.influence_nodes.search(['Achsen_ID', 'N_Rang', 'N_Einfluss']) as sc:
-        for axis, rank, name in sc:
-            lsa = 'K' + name[1:-1]
-            rank = 2 * (rank - 1)
-            where_clause = SQL.and_((
-                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
-                    SQL.eq_('LSA', SQL.quote_(lsa)),
-                    SQL.eq_('Segmenttyp', 0)))
-            with model.segments.update(['Segmenttyp', 'rank'], where_clause=where_clause) as rows:
-                for row in rows:
-                    row[1] = rank
-                    rows.updateRow(row)
-
-    with model.lsa_nodes.search(['Achsen_ID', 'K_Rang', 'LSA']) as sc:
-        for axis, rank, name in sc:
-            lsa = name[:-1]
-            rank = 2 * (rank - 1) + 1
-            where_clause = SQL.and_((
-                    SQL.eq_('Achsen_ID', SQL.quote_(axis)),
-                    SQL.eq_('LSA', SQL.quote_(lsa)),
-                    SQL.eq_('Segmenttyp', 1)))
-            with model.segments.update(['rank'], where_clause=where_clause) as rows:
-                for row in rows:
-                    row[0] = rank
-                    rows.updateRow(row)
+    with model.segments.update(['Segmenttyp', 'Rang_LSA', 'rank']) as rows:
+        for row in rows:
+            # non-influence
+            if row[0] == 0:
+                row[2] = 2 * (row[1] - 1)
+            # influence
+            elif row[0] == 1:
+                row[2] = 2 * (row[1] - 1) + 1
+            rows.updateRow(row)
 
 def add_length_and_duration():
     model.segments.add_field('length', 'DOUBLE')
