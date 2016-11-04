@@ -933,7 +933,7 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('consumption_by_axis_' + postfix)
         measurement_view.statistics(
             out_table=out_table,
-            statistics_fields=[('consumption', 'MEAN'), ('consumption', 'COUNT')],
+            statistics_fields=[('consumption', 'COUNT'), ('consumption', 'MEAN')],
             case_field=['axis'])
         out_table.rename_field('COUNT_consumption', 'num_observations')
         out_table.delete_field('FREQUENCY')
@@ -942,7 +942,7 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('co2_by_axis_' + postfix)
         measurement_view.statistics(
             out_table=out_table,
-            statistics_fields=[('co2','MEAN'), ('co2', 'COUNT')],
+            statistics_fields=[('co2', 'COUNT'),('co2','MEAN')],
             case_field=['axis'])
         out_table.rename_field('COUNT_co2', 'num_observations')
         out_table.delete_field('FREQUENCY')
@@ -951,7 +951,7 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('consumption_by_axis_segment_' + postfix)
         measurement_view.statistics(
             out_table=out_table,
-            statistics_fields=[('consumption','MEAN'), ('consumption', 'COUNT')],
+            statistics_fields=[ ('consumption', 'COUNT'),('consumption','MEAN')],
             case_field=['axis', 'segment'])
         out_table.rename_field('COUNT_consumption', 'num_observations')
         out_table.delete_field('FREQUENCY')
@@ -961,7 +961,7 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('co2_by_axis_segment_' + postfix)
         measurement_view.statistics(
             out_table=out_table,
-            statistics_fields=[('co2','MEAN'), ('co2', 'COUNT')],
+            statistics_fields=[('co2', 'COUNT'),('co2','MEAN')],
             case_field=['axis', 'segment'])
         out_table.rename_field('COUNT_co2', 'num_observations')
         out_table.delete_field('FREQUENCY')
@@ -1003,7 +1003,7 @@ def calculate_statistics(model, fgdb):
             # the number of stops (regardless of whether multiple or not)
             stops_view.statistics(
                 out_table=out_table,
-                statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+                statistics_fields=[('duration', 'COUNT'), ('duration', 'MEAN')],
                 case_field=['axis'])
             out_table.rename_field('COUNT_duration', 'stops')
             out_table.delete_field('FREQUENCY')
@@ -1057,7 +1057,7 @@ def calculate_statistics(model, fgdb):
             # the number of stops (regardless of whether multiple or not)
             stops_view.statistics(
                 out_table=out_table,
-                statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+                statistics_fields=[('duration', 'COUNT'),('duration', 'MEAN')],
                 case_field=['axis','segment'])
             out_table.rename_field('COUNT_duration', 'stops')
             out_table.delete_field('FREQUENCY')
@@ -1086,7 +1086,7 @@ def calculate_statistics(model, fgdb):
         tracks_view.subset_selection('duration > 0')
         tracks_view.statistics(
             out_table=out_table,
-            statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+            statistics_fields=[('duration', 'COUNT'),('duration', 'MEAN')],
             case_field=['axis'])
         out_table.rename_field('COUNT_duration', 'num_tracks')
         out_table.rename_field('MEAN_duration', 'travel_time')
@@ -1192,7 +1192,7 @@ def calculate_statistics(model, fgdb):
         out_table = fgdb.table('travel_time_by_axis_segment_' + postfix)
         tmp_table_view.statistics(
             out_table=out_table,
-            statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+            statistics_fields=[('duration', 'COUNT'),('duration', 'MEAN')],
             case_field=['axis','segment'])
         out_table.rename_field('COUNT_duration', 'num_tracks')
         out_table.delete_field('FREQUENCY')
@@ -1559,7 +1559,7 @@ def find_passages(fgdb, axis_model):
                 out_table = fgdb.table(name)
                 stops.statistics(
                     out_table=out_table,
-                    statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+                    statistics_fields=[('duration', 'COUNT'),('duration', 'MEAN')],
                     case_field=['axis','segment','track'])
                 out_table.rename_field('COUNT_duration', 'num_stops')
                 out_table.rename_field('MEAN_duration', 'duration')
@@ -1606,7 +1606,7 @@ def find_passages(fgdb, axis_model):
                 out_table = fgdb.table(name)
                 stops.statistics(
                     out_table=out_table,
-                    statistics_fields=[('duration', 'MEAN'), ('duration', 'COUNT')],
+                    statistics_fields=[('duration', 'COUNT'),('duration', 'MEAN')],
                     case_field=['axis', 'track'])
                 out_table.delete_field('FREQUENCY')
                 out_table.rename_field('COUNT_duration', 'num_stops')
@@ -1615,7 +1615,7 @@ def find_passages(fgdb, axis_model):
                 return out_table
 
             axis_track = create_axis_track_table('axis_track_' + postfix, sql)
-            stops_by_axis_track = create_stops_by_axis_track('stops_by_axis_track_' + postfix, sql)
+            stops_by_axis_traHAck = create_stops_by_axis_track('stops_by_axis_track_' + postfix, sql)
             try:
                 find_passages_by_axis(
                     fgdb,
