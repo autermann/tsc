@@ -436,7 +436,7 @@ class TrackMatcher(object):
                                 insert.insertRow(
                                     [column if idx != track_idx else new_track_name for idx, column in enumerate(row)] + [1 if time.matches_complete_axis else 0])
 
-            self.add_axis_segment_association(axis, nfc)
+        self.add_axis_segment_association(axis, nfc)
 
         gzip_file(csv_path)
 
