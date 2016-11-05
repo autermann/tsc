@@ -1615,7 +1615,7 @@ def find_passages(fgdb, axis_model):
                 return out_table
 
             axis_track = create_axis_track_table('axis_track_' + postfix, sql)
-            stops_by_axis_traHAck = create_stops_by_axis_track('stops_by_axis_track_' + postfix, sql)
+            stops_by_axis_track = create_stops_by_axis_track('stops_by_axis_track_' + postfix, sql)
             try:
                 find_passages_by_axis(
                     fgdb,
