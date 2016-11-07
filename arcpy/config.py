@@ -43,11 +43,6 @@ stops = fgdb.table('stops')
 
 
 axes = None
-#axes = ['12_2']
-#axes = [x for x in axis(xrange(16, 20))] + [x for x in axis(xrange(1, 10))]
-#axes = ['4_2']
-#axes = ['1_1','1_2']
-
 
 def setenv():
 	env.overwriteOutput = True
