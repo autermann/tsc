@@ -13,7 +13,7 @@ import logging
 
 MAX_TIME_SPAN_SAME_NODE = 10 * 1000
 MAX_TIME_SPAN_CONSECUTIVE_NODES = 60 * 1000
-NUM_CONSECUTIVE_MATCHES = 3
+NUM_CONSECUTIVE_MATCHES = 4
 NODE_BUFFER_SIZE = 20
 NODE_TYPE_START = 1
 NODE_TYPE_LSA = 2
@@ -53,7 +53,7 @@ class TrackMatchingResult(object):
         minumum required length.
         """
         for match in matches:
-            if len(match) >= NUM_CONSECUTIVE_MATCHES:
+            if len(match) >= min(self.axis_node_count, NUM_CONSECUTIVE_MATCHES):
                 yield match
 
     def remove_edge_matches(self, matches):
@@ -62,11 +62,14 @@ class TrackMatchingResult(object):
         first and last nodes of the axis.
         """
         for match in matches:
-            if not match.includes_first_node:
-                match.delete_min_idx()
-            if not match.includes_last_node:
-                match.delete_max_idx()
-            yield match
+            try:
+                if not match.includes_first_node:
+                    match.delete_min_idx()
+                if not match.includes_last_node:
+                    match.delete_max_idx()
+                yield match
+            except:
+                pass
 
     def create_node_matches(self, matches):
         """Creates NodeMatchingResult objects for the supplied tuples."""
