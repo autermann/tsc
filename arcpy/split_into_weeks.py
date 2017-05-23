@@ -1,7 +1,8 @@
-from ooarcpy import FileGDB
-from config import fgdb, setenv, workspace
-from datetime import datetime, timedelta
 import os
+import ooarcpy
+import config
+
+from datetime import datetime, timedelta
 
 EPOCH = datetime(1970, 1, 1)
 
@@ -10,48 +11,44 @@ def to_millis(dt):
 
 
 if __name__ == '__main__':
-  setenv()
-  measurements = fgdb.feature_class('measurements').view()
+  config.setenv()
+  measurements = config.fgdb.feature_class('measurements').view()
   begin_period_1 = datetime(2016, 6, 6)
   begin_period_2 = datetime(2016, 9, 5)
   period_length = 4
   two_hours = timedelta(hours=2)
 
   times = {}
-  times.update({
-    'week%d' % (week + 1): [(
-      begin_period_1 - two_hours + timedelta(weeks=week),
-      begin_period_1 - two_hours + timedelta(weeks=week + 1)
-    )] for week in range(period_length)
-  })
-  times.update({
-    'week%d' % (week + 5): [(
-      begin_period_2 - two_hours + timedelta(weeks=week),
-      begin_period_2 - two_hours + timedelta(weeks=week + 1)
-    )] for week in range(period_length)
-  })
-  times['summer'] = [(
-    begin_period_1 - two_hours + timedelta(weeks=period_length),
-    begin_period_2 - two_hours
-  )]
-  times['all'] = [
-    (begin_period_1 - two_hours, begin_period_1 - two_hours + timedelta(weeks=period_length)),
-    (begin_period_2 - two_hours, begin_period_2 - two_hours + timedelta(weeks=period_length))
+  times['period1'] = [
+    (datetime(2016, 6,  6) - two_hours, datetime(2016,  6, 19) - two_hours),
+    (datetime(2016, 6, 27) - two_hours, datetime(2016,  7,  3) - two_hours),
+    (datetime(2016, 9,  5) - two_hours, datetime(2016,  9, 18) - two_hours),
+    (datetime(2016, 9, 26) - two_hours, datetime(2016, 10,  2) - two_hours)
+  ]
+  times['period2'] = [
+    (datetime(2016, 6, 20) - two_hours, datetime(2016,  6, 26) - two_hours),
+    (datetime(2016, 9, 19) - two_hours, datetime(2016,  9, 23) - two_hours)
+  ]
+  times['period3'] = [
+    (datetime(2016, 7, 11) - two_hours, datetime(2016,  8, 23) - two_hours),
   ]
 
   for name in times:
-    out = FileGDB(os.path.join(workspace, '%s.gdb' % name))
-    out.delete_if_exists()
-    out.create_if_not_exists()
+    fgdb = ooarcpy.FileGDB(os.path.join(config.workspace, '%s.gdb' % name))
+    fgdb.delete_if_exists()
+    fgdb.create_if_not_exists()
 
-    out_fc = out.feature_class('measurements')
+    out = fgdb.feature_class('measurements')
 
-    where_clause = """("time" >= {begin} AND "time" < {end})"""
-    where_clause = ' OR '.join(where_clause.format(begin=to_millis(t[0]), end=to_millis(t[1])) for t in times[name])
+    # select the subset matching the times
+    where_clause = ' OR '.join("""("time" >= {begin} AND "time" < {end})""".format(
+                begin=to_millis(t[0]), end=to_millis(t[1])) for t in times[name])
     measurements.new_selection(where_clause=where_clause)
-    measurements.to_feature_class(out_fc)
+    # and copy it to a new feature class
+    measurements.to_feature_class(out)
 
+    # copy the indices
     for index in measurements.list_indexes():
       fields = [field.name for field in index.fields]
       if measurements.oid_field_name not in fields and measurements.shape_field_name not in fields:
-        out_fc.add_index(fields, index.name, index.isUnique, index.isAscending)
+        out.add_index(fields, index.name, index.isUnique, index.isAscending)

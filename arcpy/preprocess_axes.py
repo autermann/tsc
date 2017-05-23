@@ -1,17 +1,15 @@
 import textwrap
-from config import axis_model as model, setenv, fgdb
-from arcpy import Polyline, Array, PointGeometry
-from utils import SQL
+import config
 
 SEGMENT_BUFFER_SIZE = 20
 
 def add_segment_bbox_area():
-    model.segments.add_field('bbox_area', 'DOUBLE')
+    config.axis_model.segments.add_field('bbox_area', 'DOUBLE')
 
     buffer_distance = '{0} Meters'.format(str(SEGMENT_BUFFER_SIZE))
-    segments_buffered = fgdb.feature_class('segments_buffered')
-    segments_bbox = fgdb.feature_class('segments_bbox')
-    segments = model.segments.view()
+    segments_buffered = config.fgdb.feature_class('segments_buffered')
+    segments_bbox = config.fgdb.feature_class('segments_bbox')
+    segments = config.axis_model.segments.view()
     try:
         segments_buffered.delete_if_exists()
         segments_bbox.delete_if_exists()
@@ -33,9 +31,9 @@ def add_segment_bbox_area():
 
 
 def add_segment_rank():
-    model.segments.add_field('rank', 'LONG')
+    config.axis_model.segments.add_field('rank', 'LONG')
 
-    with model.segments.update(['Segmenttyp', 'Rang_LSA', 'rank']) as rows:
+    with config.axis_model.segments.update(['Segmenttyp', 'Rang_LSA', 'rank']) as rows:
         for row in rows:
             # non-influence
             if row[0] == 0:
@@ -46,15 +44,14 @@ def add_segment_rank():
             rows.updateRow(row)
 
 def add_length_and_duration():
-    model.segments.add_field('length', 'DOUBLE')
-    model.segments.add_field('duration', 'DOUBLE')
-
-    model.segments.calculate_field('length', '!laenge!')
-    model.segments.calculate_field('duration', '!laenge!/(50/3.6)')
+    config.axis_model.segments.add_field('length', 'DOUBLE')
+    config.axis_model.segments.calculate_field('length', '!laenge!')
+    config.axis_model.segments.add_field('duration', 'DOUBLE')
+    config.axis_model.segments.calculate_field('duration', '!laenge!/(50/3.6)')
 
 if __name__ == '__main__':
-    setenv()
-    fgdb.create_if_not_exists()
+    config.setenv()
+    config.fgdb.create_if_not_exists()
     add_segment_bbox_area()
     add_length_and_duration()
     add_segment_rank()

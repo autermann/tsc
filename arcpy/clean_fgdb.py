@@ -1,8 +1,7 @@
-
-from config import fgdb, setenv
+import config
 
 if __name__ == '__main__':
-    setenv()
+    config.setenv()
 
     classifiers = [
         'all',
@@ -39,4 +38,4 @@ if __name__ == '__main__':
 
     for table in tables:
         for classifier in classifiers:
-            fgdb.table('%s_%s' % (table, classifier)).delete_if_exists()
+            config.fgdb.table('%s_%s' % (table, classifier)).delete_if_exists()

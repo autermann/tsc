@@ -8,9 +8,8 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 log = logging.getLogger(__name__)
 
 def debug(command, param):
-    pass
-    #if log.isEnabledFor(logging.DEBUG):
-    #   log.debug('%s%s', command, str(param))
+    if log.isEnabledFor(logging.DEBUG):
+       log.debug('%s%s', command, str(param))
 
 class ArcpyDatabase(object):
     __metaclass__ = ABCMeta

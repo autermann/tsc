@@ -1129,7 +1129,7 @@ def calculate_statistics(model, fgdb):
         out_table_view = out_table.view()
         speed_table_view = fgdb.table('speed_by_axis_segment_' + postfix).view()
         try:
-            out_table_view.add_join('segment', speed_table_view , 'segment')
+            out_table_view.add_join('segment', speed_table_view, 'segment')
             out_table_view.calculate_field('duration', '(!{0}.length!/!{1}.arithmetic_mean_speed!)*3600'.format(out_table_view.name, speed_table_view.name))
             out_table.delete_field('length')
         finally:

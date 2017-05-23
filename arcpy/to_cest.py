@@ -5,19 +5,22 @@ import config
 
 
 if __name__ == '__main__':
-    directory = os.path.join(config.workspace, 'cest')
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    names = ['summer.gdb', 'all.gdb'] + ['week%d.gdb' % (week+1) for week in range(8)]
-    for name in names:
-        source = os.path.join(config.workspace, name)
-        target = os.path.join(directory, name)
+    if not os.path.exists(config.workspace_cest):
+        os.makedirs(config.workspace_cest)
+    
+    for name in config.names:
+        source = os.path.join(config.workspace, '%s.gdb' % name)
+        target = os.path.join(config.workspace_cest,'%s.gdb' % name)
+        
         if arcpy.Exists(target):
             arcpy.management.Delete(target)
+        
         arcpy.management.Copy(source, target)
-        fgdb = ooarcpy.FileGDB(target)
-        measurements = fgdb.feature_class('measurements')
+        target = ooarcpy.FileGDB(target)
+        
+        measurements = target.feature_class('measurements')
         measurements.calculate_field('time', '!time!+7200000')
-        tracks = fgdb.feature_class('tracks')
+        
+        tracks = target.feature_class('tracks')
         tracks.calculate_field('start_time', '!start_time!+7200000')
         tracks.calculate_field('stop_time', '!stop_time!+7200000')
